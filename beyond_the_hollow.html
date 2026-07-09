@@ -1,0 +1,1663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Beyond the Hollow</title>
+<!--
+  ============================================================================
+  BEYOND THE HOLLOW — UNIFIED BUILD
+  ============================================================================
+  Merge pass 1 of N: the ENGINE SHELL.
+
+  This file replaces the old two-file setup (world_prototype.html +
+  planet_b_prototype.html) that communicated only through window.storage keys.
+  Everything shared now lives once, in Engine.*, and each world is a module
+  that plugs into WorldManager.
+
+  WHAT IS DONE (this pass):
+    - Single renderer / camera / composer / clock / animate() loop
+    - Engine.input     shared keyboard + drag-look + sprint/interact/attack
+    - Engine.audio     shared procedural SFX + per-world ambient mood
+    - Engine.settings  difficulty / colorblind / graphics + settings:v1 I/O + panel
+    - Engine.storage   thin async wrapper over window.storage (with fallback)
+    - Engine.rig       makeHumanoidParts + CC_SIZES + applyCharacterConfig
+    - Engine.player    shared 3rd-person controller + camera + shared melee combat
+    - WorldManager     register / goto — in-app world swap (replaces window.open)
+    - Two REAL (thin) worlds proving carryover, switching, combat, settings
+
+  WHAT PORTS IN NEXT (labeled seams below, search "PORT:"):
+    Planet A  -> WorldA.*  : terrain/ruins/flora, colony+build menu, resources,
+                             companions+dialogue, rivals, weapons+armory, ship
+                             flight, readiness, Ashketh summon (calls Engine.goto)
+    Planet B  -> WorldB.*  : ring-world geo, guardians+mutants, 3 trials,
+                             footholds, choice-echo, Ashketh musings, ending
+
+  MIGRATION MAP (old symbol -> new home):
+    ensureAudio/playTone/... ......... Engine.audio.*
+    makeHumanoidParts/CC_SIZES ....... Engine.rig.*
+    state.{hp,stamina,yaw,camYaw,...}  Engine.state.*   (core, shared)
+    state.{wood,scrap,trialActive,..}  world.state.*    (world-specific)
+    updatePlayer/updateCamera ........ Engine.player.*  (worlds supply heightAt)
+    performAttack/PLAYER_ATTACK_* .... Engine.player.*  (worlds supply targets)
+    makeChoiceButtons/apply* ......... Engine.settings.*
+    window.storage handshake ......... Engine.storage + live in-memory state
+    window.open('planet_b...') ....... Engine.goto('hollowVerge')
+  ============================================================================
+-->
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #05060a; font-family: 'Segoe UI', system-ui, sans-serif; color: #e8ecf2; }
+  #game { position: fixed; inset: 0; }
+  canvas { display: block; }
+
+  /* ---- HUD ---- */
+  #hud { position: fixed; left: 16px; top: 14px; pointer-events: none; user-select: none; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
+  .bar { width: 190px; height: 12px; border: 1px solid rgba(255,255,255,.35); border-radius: 6px; overflow: hidden; margin-bottom: 6px; background: rgba(0,0,0,.35); }
+  .bar > i { display: block; height: 100%; transition: width .15s ease; }
+  #hpFill { background: linear-gradient(90deg,#e2574c,#f0897f); }
+  #stFill { background: linear-gradient(90deg,#4fd18a,#a8f0c8); }
+  #worldName { font-size: 12px; letter-spacing: 3px; text-transform: uppercase; opacity: .65; margin-bottom: 8px; }
+  #timeBadge { font-size: 11px; opacity: .55; margin-bottom: 6px; }
+
+  #prompt { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); padding: 8px 16px; background: rgba(8,10,18,.72); border: 1px solid rgba(255,255,255,.18); border-radius: 8px; font-size: 14px; opacity: 0; transition: opacity .18s; pointer-events: none; }
+  #prompt.show { opacity: 1; }
+
+  #hurt { position: fixed; inset: 0; pointer-events: none; box-shadow: inset 0 0 140px 40px rgba(210,40,40,0); transition: box-shadow .12s; }
+
+  /* ---- top-right controls ---- */
+  #topRight { position: fixed; right: 14px; top: 14px; display: flex; gap: 8px; }
+  .btn { pointer-events: auto; cursor: pointer; padding: 7px 12px; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; background: rgba(14,18,28,.8); border: 1px solid rgba(255,255,255,.2); border-radius: 7px; color: #dfe6f0; }
+  .btn:hover { border-color: rgba(255,255,255,.5); }
+
+  /* ---- panels ---- */
+  .overlay { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(4,6,12,.72); backdrop-filter: blur(3px); z-index: 30; }
+  .panel { width: min(440px, 92vw); background: #0d1119; border: 1px solid rgba(255,255,255,.14); border-radius: 14px; padding: 24px; }
+  .panel h2 { font-size: 18px; letter-spacing: 1px; margin-bottom: 18px; font-weight: 600; }
+  .row { margin-bottom: 18px; }
+  .row > label { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; opacity: .6; margin-bottom: 8px; }
+  .choices { display: flex; gap: 8px; flex-wrap: wrap; }
+  .choice { cursor: pointer; padding: 8px 14px; font-size: 13px; border-radius: 8px; background: #161c28; border: 1px solid rgba(255,255,255,.12); }
+  .choice.active { background: #2a3a5c; border-color: #6f9fe0; }
+
+  /* ---- dev world-switch (temporary; the real switch is Ashketh's summon) ---- */
+  #devSwitch { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); display: flex; gap: 8px; z-index: 20; }
+  #devSwitch .tag { align-self: center; font-size: 10px; letter-spacing: 1px; opacity: .4; text-transform: uppercase; }
+
+  #ashketh { position: fixed; left: 50%; top: 26%; transform: translateX(-50%); width: min(560px,90vw); text-align: center; font-size: calc(17px * var(--text-scale,1)); line-height: 1.5; color: #cfe0ff; text-shadow: 0 0 18px rgba(90,140,255,.5); opacity: 0; transition: opacity .8s; pointer-events: none; z-index: 25; }
+
+  /* subtitles (accessibility): bottom-center caption mirror of spoken lines */
+  #subtitle { position: fixed; left: 50%; bottom: 58px; transform: translateX(-50%); max-width: min(680px,92vw); text-align: center; font-size: calc(16px * var(--text-scale,1)); line-height: 1.45; color: #fff; background: rgba(0,0,0,.6); padding: 6px 14px; border-radius: 6px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 26; }
+  #subtitle.show { opacity: 1; }
+
+  /* choice log + lore panel */
+  #logOverlay .panel { max-height: 82vh; overflow-y: auto; }
+  .logSection { margin-bottom: 18px; }
+  .logSection h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; opacity: .6; margin-bottom: 8px; }
+  .logItem { padding: 8px 10px; background: #10151f; border: 1px solid rgba(255,255,255,.08); border-radius: 7px; margin-bottom: 7px; font-size: 13px; line-height: 1.45; }
+  .logItem b { color: #9fc0ff; }
+  .logItem .outcome { display: block; opacity: .7; margin-top: 2px; font-size: 12px; }
+  .logEmpty { opacity: .4; font-size: 12px; font-style: italic; }
+
+  /* remappable-controls rows */
+  .keyRow { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,.06); }
+  .keyRow .act { font-size: 13px; opacity: .85; text-transform: capitalize; }
+  .keyRow .bind { cursor: pointer; min-width: 84px; text-align: center; padding: 5px 10px; font-size: 12px; font-family: monospace; background: #161c28; border: 1px solid rgba(255,255,255,.14); border-radius: 6px; }
+  .keyRow .bind.listening { background: #3a2f10; border-color: #e2b04c; }
+
+  /* start / character-creation screen */
+  #startOverlay { background: radial-gradient(ellipse at 50% 30%, rgba(20,26,40,.9), rgba(4,6,12,.96)); }
+  #startOverlay .panel { width: min(520px, 94vw); }
+  #startOverlay h1 { font-size: 30px; letter-spacing: 6px; text-align: center; margin-bottom: 4px; font-weight: 300; }
+  #startOverlay .sub { text-align: center; opacity: .55; font-size: 12px; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 20px; }
+  .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+  .swatch { width: 30px; height: 30px; border-radius: 7px; cursor: pointer; border: 2px solid transparent; }
+  .swatch.active { border-color: #fff; box-shadow: 0 0 0 2px rgba(0,0,0,.5) inset; }
+  #btnBegin { width: 100%; text-align: center; margin-top: 10px; padding: 12px; font-size: 14px; background: #2a3a5c; border-color: #6f9fe0; }
+
+  /* map */
+  #mapCanvasWrap { width: 100%; height: min(60vh, 440px); border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,.12); background: #12161d; }
+  #mapCanvas { width: 100%; height: 100%; display: block; }
+  .mapLegend { display: flex; gap: 16px; margin-top: 12px; font-size: 11px; opacity: .7; flex-wrap: wrap; }
+  .mapLegend span::before { content: '\25CF'; margin-right: 5px; }
+  .lg-home::before { color: #e2b04c; } .lg-story::before { color: #4fd1c5; } .lg-place::before { color: #8a8f8a; }
+
+  /* armory */
+  #armoryOverlay .panel { max-height: 82vh; overflow-y: auto; }
+  .weaponCard { padding: 12px; border-radius: 9px; background: #10151f; border: 1px solid rgba(255,255,255,.08); margin-bottom: 9px; }
+  .weaponCard.equipped { border-color: #6f9fe0; background: #16203a; }
+  .weaponCard.locked { opacity: .5; }
+  .wRow { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .wName { font-size: 14px; font-weight: 600; }
+  .wTag { font-size: 12px; opacity: .6; margin-top: 2px; }
+  .wStats { font-size: 11px; opacity: .55; margin-top: 8px; font-family: monospace; }
+  .weaponCard button { cursor: pointer; padding: 6px 12px; font-size: 12px; border-radius: 6px; background: #2a3a5c; color: #fff; border: 1px solid #6f9fe0; white-space: nowrap; }
+  .weaponCard button:disabled { opacity: .5; cursor: default; background: #222; border-color: rgba(255,255,255,.15); }
+</style>
+</head>
+<body>
+<div id="game"></div>
+
+<div id="hud">
+  <div id="worldName">—</div>
+  <div id="timeBadge"></div>
+  <div class="bar"><i id="hpFill" style="width:100%"></i></div>
+  <div class="bar"><i id="stFill" style="width:100%"></i></div>
+</div>
+
+<div id="prompt"></div>
+<div id="hurt"></div>
+<div id="ashketh"></div>
+<div id="subtitle"></div>
+
+<div id="topRight">
+  <div class="btn" id="btnMap">Map</div>
+  <div class="btn" id="btnArmory">Armory</div>
+  <div class="btn" id="btnLog">Log</div>
+  <div class="btn" id="btnSettings">Settings</div>
+</div>
+
+<div id="devSwitch">
+  <span class="tag">dev</span>
+  <div class="btn" id="btnWorldA">Kessa's Reach</div>
+  <div class="btn" id="btnWorldB">Hollow Verge</div>
+</div>
+
+<!-- Settings panel (shared across both worlds) -->
+<div class="overlay" id="settingsOverlay">
+  <div class="panel">
+    <h2>Settings</h2>
+    <div class="row"><label>Difficulty</label><div class="choices" id="setDifficulty"></div></div>
+    <div class="row"><label>Colorblind Mode</label><div class="choices" id="setColorblind"></div></div>
+    <div class="row"><label>Graphics</label><div class="choices" id="setGraphics"></div></div>
+    <div class="row"><label>Text Size</label><div class="choices" id="setTextSize"></div></div>
+    <div class="row"><label>Subtitles</label><div class="choices" id="setSubtitles"></div></div>
+    <div class="row"><label>Controls (click a key, then press a new one)</label><div id="setKeybinds"></div>
+      <div class="btn" id="btnResetKeys" style="margin-top:8px;font-size:11px;">Reset to defaults</div></div>
+    <div class="btn" id="btnCloseSettings" style="margin-top:6px;">Close</div>
+  </div>
+</div>
+
+<!-- Choice log + lore fragments (shared; worlds push into it) -->
+<div class="overlay" id="logOverlay">
+  <div class="panel">
+    <h2>Expedition Log</h2>
+    <div class="logSection"><h3>Decisions</h3><div id="logDecisions"></div></div>
+    <div class="logSection"><h3>Lore Fragments</h3><div id="logLore"></div></div>
+    <div class="btn" id="btnCloseLog" style="margin-top:6px;">Close</div>
+  </div>
+</div>
+
+<!-- Start screen + character creation (shown before play begins) -->
+<div class="overlay" id="startOverlay">
+  <div class="panel">
+    <h1>BEYOND THE HOLLOW</h1>
+    <div class="sub">Outfit your Commander</div>
+    <div class="row"><label>Size</label><div class="choices" id="ccSize"></div></div>
+    <div class="row"><label>Build</label><div class="choices" id="ccBuild"></div></div>
+    <div class="row"><label>Suit Color</label><div class="swatches" id="ccSuit"></div></div>
+    <div class="row"><label>Leg Color</label><div class="swatches" id="ccLeg"></div></div>
+    <div class="row"><label>Skin Tone</label><div class="swatches" id="ccSkin"></div></div>
+    <div class="btn" id="btnBegin">Begin Expedition</div>
+  </div>
+</div>
+
+<!-- Map -->
+<div class="overlay" id="mapOverlay">
+  <div class="panel">
+    <h2>Map</h2>
+    <div id="mapCanvasWrap"><canvas id="mapCanvas"></canvas></div>
+    <div class="mapLegend"><span class="lg-home">Home / Foothold</span><span class="lg-story">Story site</span><span class="lg-place">Landmark</span></div>
+    <div class="btn" id="btnCloseMap" style="margin-top:12px;">Close</div>
+  </div>
+</div>
+
+<!-- Armory -->
+<div class="overlay" id="armoryOverlay">
+  <div class="panel">
+    <h2>Armory</h2>
+    <div id="armoryList"></div>
+    <div class="btn" id="btnCloseArmory" style="margin-top:6px;">Close</div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script>
+"use strict";
+
+/* ---- visible error surface: no more silent blank screens ----------------- */
+function showFatal(msg) {
+  let el = document.getElementById('fatalErr');
+  if (!el) {
+    el = document.createElement('div'); el.id = 'fatalErr';
+    el.style.cssText = 'position:fixed;left:50%;top:16px;transform:translateX(-50%);max-width:90vw;z-index:999;background:#3a0f12;border:1px solid #e2574c;color:#ffd7d2;padding:12px 16px;border-radius:8px;font:13px/1.5 monospace;white-space:pre-wrap;';
+    document.body.appendChild(el);
+  }
+  el.textContent = 'Startup error:\n' + msg;
+}
+window.addEventListener('error', (e) => showFatal(e.message + (e.filename ? '\n' + e.filename + ':' + e.lineno : '')));
+window.addEventListener('unhandledrejection', (e) => showFatal('' + (e.reason && e.reason.message || e.reason)));
+// Guard against the postprocessing CDN scripts failing to load:
+if (!window.THREE || !THREE.EffectComposer) {
+  showFatal('Three.js or its postprocessing add-ons did not load (network/CDN issue).');
+}
+
+/* ==========================================================================
+   ENGINE — shared singletons and systems (declared ONCE for the whole game)
+   ========================================================================== */
+const Engine = {};
+
+/* ---- renderer / camera / composer (one of each, retargeted per world) ---- */
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+document.getElementById('game').appendChild(renderer.domElement);
+
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 600);
+const clock = new THREE.Clock();
+
+// RenderPass is created with a placeholder scene; WorldManager.goto retargets it.
+const composer = new THREE.EffectComposer(renderer);
+const renderPass = new THREE.RenderPass(new THREE.Scene(), camera);
+composer.addPass(renderPass);
+const bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.55, 0.6, 0.85);
+composer.addPass(bloomPass);
+
+// Cinematic grade pass — worlds tune .tint / .exposure via their mood object.
+const gradeShader = {
+  uniforms: {
+    tDiffuse: { value: null }, time: { value: 0 },
+    tint: { value: new THREE.Color(1, 1, 1) }, exposure: { value: 1.0 }, vignette: { value: 0.9 },
+  },
+  vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform vec3 tint; uniform float exposure; uniform float vignette; varying vec2 vUv;
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      c.rgb *= tint * exposure;
+      vec2 d = vUv - 0.5;
+      float v = smoothstep(0.85, vignette*0.35, dot(d,d)*2.2);
+      c.rgb *= mix(0.72, 1.0, v);
+      gl_FragColor = c;
+    }`,
+};
+const gradePass = new THREE.ShaderPass(gradeShader);
+gradePass.renderToScreen = true;
+composer.addPass(gradePass);
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* ---- shared core state (the player-agnostic part every world shares) ---- */
+Engine.state = {
+  hp: 140, maxHp: 140,
+  stamina: 100, maxStamina: 100,
+  sprinting: false,
+  yaw: 0, camYaw: 0, camPitch: 0.35,
+  isDead: false,
+  attackCooldown: 0,
+  kills: 0,
+  started: false,
+  paused: false,          // set true while a full-screen panel is open
+  settingsOpen: false,
+  difficulty: 'normal',
+  colorblindMode: false,
+  graphicsQuality: 'high',
+  textSize: 'normal',
+  subtitles: false,
+};
+
+/* ==========================================================================
+   Engine.storage — thin async wrapper over window.storage (graceful fallback)
+   Replaces the raw window.storage handshake. During a session, worlds share
+   live in-memory state directly; storage is now only for cross-session saves.
+   ========================================================================== */
+Engine.storage = {
+  _mem: {},
+  async get(key) {
+    try {
+      if (window.storage) { const r = await window.storage.get(key, false); return r && r.value ? JSON.parse(r.value) : null; }
+    } catch (e) {}
+    return this._mem[key] != null ? this._mem[key] : null;
+  },
+  async set(key, val) {
+    this._mem[key] = val;
+    try { if (window.storage) await window.storage.set(key, JSON.stringify(val), false); } catch (e) {}
+  },
+};
+
+/* ==========================================================================
+   Engine.audio — shared procedural audio (was duplicated in both files)
+   ========================================================================== */
+Engine.audio = (() => {
+  let ctx = null, hum = null, started = false;
+  function ensure() { if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } return ctx; }
+  function tone(freq, dur, type = 'sine', gain = 0.1, glideTo = null) {
+    if (!ensure()) return;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, ctx.currentTime);
+    if (glideTo) o.frequency.exponentialRampToValueAtTime(glideTo, ctx.currentTime + dur);
+    g.gain.setValueAtTime(gain, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
+    o.connect(g).connect(ctx.destination); o.start(); o.stop(ctx.currentTime + dur);
+  }
+  function noise(dur, gain = 0.1, filterFreq = 1400) {
+    if (!ensure()) return;
+    const n = ctx.createBufferSource(), buf = ctx.createBuffer(1, ctx.sampleRate * dur, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    n.buffer = buf;
+    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = filterFreq;
+    const g = ctx.createGain(); g.gain.setValueAtTime(gain, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
+    n.connect(f).connect(g).connect(ctx.destination); n.start(); n.stop(ctx.currentTime + dur);
+  }
+  // Shared SFX vocabulary used by both worlds.
+  const sfx = {
+    swing: () => noise(0.17, 0.11, 2400),
+    hit:   () => { tone(190, 0.14, 'square', 0.11, 95); noise(0.07, 0.07, 650); },
+    death: () => tone(300, 0.38, 'sawtooth', 0.11, 55),
+    hurt:  () => tone(145, 0.24, 'sawtooth', 0.14, 72),
+    blip:  () => tone(560, 0.06, 'sine', 0.08),
+    gather:() => { tone(660, 0.12, 'sine', 0.1); setTimeout(() => tone(880, 0.14, 'sine', 0.1), 90); },
+    jump:  () => tone(320, 0.14, 'sine', 0.1, 480),
+    land:  () => { tone(140, 0.12, 'sine', 0.09, 80); noise(0.08, 0.08, 500); },
+    beacon:() => [523, 784].forEach((f, i) => setTimeout(() => tone(f, 0.3, 'sine', 0.1), i * 100)),
+  };
+  // Per-world ambient bed. mood = { base:Hz, warmth:0..1 }; drone differs A vs B.
+  function startAmbient(mood) {
+    if (!ensure() || started) { if (started && hum) retune(mood); return; }
+    started = true;
+    hum = ctx.createOscillator(); const g = ctx.createGain();
+    hum.type = 'sine'; hum.frequency.value = mood.base;
+    g.gain.value = 0.02; hum.connect(g).connect(ctx.destination); hum.start();
+    hum._gain = g;
+  }
+  function retune(mood) { if (hum) hum.frequency.linearRampToValueAtTime(mood.base, ctx.currentTime + 1.2); }
+  return { ensure, tone, noise, sfx, startAmbient };
+})();
+// Any first user gesture unlocks the audio context.
+window.addEventListener('pointerdown', () => Engine.audio.ensure(), { once: true });
+window.addEventListener('keydown', () => Engine.audio.ensure(), { once: true });
+
+/* ==========================================================================
+   Engine.rig — shared humanoid factory (was duplicated verbatim-ish)
+   ========================================================================== */
+Engine.rig = (() => {
+  const CC_SIZES = { small: 0.88, standard: 1.0, large: 1.14 };
+  function makeLimbPivot(x, y, z, length, radius, color) {
+    const pivot = new THREE.Group(); pivot.position.set(x, y, z);
+    const geo = new THREE.CylinderGeometry(radius, radius * 0.85, length, 8);
+    geo.translate(0, -length / 2, 0);
+    const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.8 }));
+    mesh.castShadow = true; pivot.add(mesh); return pivot;
+  }
+  function makeHumanoidParts(torsoColor, opts = {}) {
+    const legColor = opts.legColor != null ? opts.legColor : 0x262b35;
+    const skin = opts.skin != null ? opts.skin : 0xf0c89a;
+    const group = new THREE.Group();
+    // r128 has no CapsuleGeometry; a tapered cylinder reads fine as a torso.
+    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.24, 0.8, 10),
+      new THREE.MeshStandardMaterial({ color: torsoColor, roughness: 0.7 }));
+    torso.position.y = 1.15; torso.castShadow = true; group.add(torso);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 16), new THREE.MeshStandardMaterial({ color: skin, roughness: 0.6 }));
+    head.position.y = 1.72; head.castShadow = true; group.add(head);
+    const leftArm = makeLimbPivot(-0.34, 1.5, 0, 0.7, 0.09, torsoColor);
+    const rightArm = makeLimbPivot(0.34, 1.5, 0, 0.7, 0.09, torsoColor);
+    const leftLeg = makeLimbPivot(-0.16, 0.78, 0, 0.78, 0.11, legColor);
+    const rightLeg = makeLimbPivot(0.16, 0.78, 0, 0.78, 0.11, legColor);
+    group.add(leftArm, rightArm, leftLeg, rightLeg);
+    return { group, torso, head, leftArm, rightArm, leftLeg, rightLeg, weaponSlot: rightArm };
+  }
+  // Reads the shared character:config (written by Kessa's Reach character creation).
+  async function applyCharacterConfig(parts) {
+    const cfg = await Engine.storage.get('character:config');
+    if (!cfg) return CC_SIZES.standard;
+    if (cfg.suitColor != null) {
+      parts.torso.material.color.setHex(cfg.suitColor);
+      parts.leftArm.children[0].material.color.setHex(cfg.suitColor);
+      parts.rightArm.children[0].material.color.setHex(cfg.suitColor);
+    }
+    if (cfg.legColor != null) { parts.leftLeg.children[0].material.color.setHex(cfg.legColor); parts.rightLeg.children[0].material.color.setHex(cfg.legColor); }
+    if (cfg.skin != null) parts.head.material.color.setHex(cfg.skin);
+    return CC_SIZES[cfg.size] || CC_SIZES.standard;
+  }
+  return { CC_SIZES, makeLimbPivot, makeHumanoidParts, applyCharacterConfig };
+})();
+
+/* ==========================================================================
+   Engine.input — shared keyboard + drag-look (was duplicated & drifting)
+   Worlds read Engine.input.* instead of binding their own listeners.
+   ========================================================================== */
+/* Remappable controls: action -> key code. Persisted; read by Engine.input. */
+Engine.keybinds = (() => {
+  // Matches the originals: F = attack, Space = jump, E = interact.
+  const DEFAULTS = { forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD', sprint: 'ShiftLeft', attack: 'KeyF', jump: 'Space', interact: 'KeyE' };
+  let map = { ...DEFAULTS };
+  const get = (a) => map[a];
+  const all = () => ({ ...map });
+  function set(a, code) { map[a] = code; save(); }
+  function reset() { map = { ...DEFAULTS }; save(); }
+  async function save() { await Engine.storage.set('keybinds:v1', map); }
+  async function load() { const d = await Engine.storage.get('keybinds:v1'); if (d) map = { ...DEFAULTS, ...d }; }
+  // pretty label for a KeyboardEvent.code
+  function label(code) { return (code || '').replace(/^Key/, '').replace(/^Digit/, '').replace('Left', ' L').replace('Right', ' R').replace('Space', 'Space'); }
+  return { DEFAULTS, get, all, set, reset, load, label };
+})();
+
+Engine.input = (() => {
+  const keys = {};
+  let capture = null; // when set, next keydown rebinds this action instead of playing
+  const io = { keys, look: { dx: 0, dy: 0 }, interactPressed: false, attackPressed: false, jumpPressed: false };
+  io.down = (action) => !!keys[Engine.keybinds.get(action)];
+  io.beginCapture = (action, cb) => { capture = { action, cb }; };
+  window.addEventListener('keydown', (e) => {
+    if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
+    if (capture) { e.preventDefault(); Engine.keybinds.set(capture.action, e.code); const cb = capture.cb; capture = null; cb && cb(); return; }
+    if (e.code === 'Space') e.preventDefault();   // don't scroll the page
+    keys[e.code] = true;
+    if (e.code === Engine.keybinds.get('interact')) io.interactPressed = true;
+    if (e.code === Engine.keybinds.get('attack')) io.attackPressed = true;
+    if (e.code === Engine.keybinds.get('jump')) io.jumpPressed = true;
+  });
+  window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+  // Drag-look (matches the originals' mouse handling; avoids pointer-lock in iframes).
+  let down = false, lastX = 0, lastY = 0;
+  const canvas = renderer.domElement;
+  canvas.addEventListener('pointerdown', (e) => { down = true; lastX = e.clientX; lastY = e.clientY; });
+  window.addEventListener('pointerup', () => { down = false; });
+  window.addEventListener('pointermove', (e) => {
+    if (!down) return;
+    io.look.dx += (e.clientX - lastX); io.look.dy += (e.clientY - lastY);
+    lastX = e.clientX; lastY = e.clientY;
+  });
+  // Called once per frame by the loop to consume edge-triggered inputs.
+  function endFrame() { io.look.dx = 0; io.look.dy = 0; io.interactPressed = false; io.attackPressed = false; io.jumpPressed = false; }
+  return Object.assign(io, { endFrame });
+})();
+
+/* ==========================================================================
+   Engine.player — shared 3rd-person controller + camera + melee combat.
+   Worlds supply: heightAt(x,z), getTargets(), and any world collision.
+   (was updatePlayer / updateCamera / performAttack, duplicated in both files)
+   ========================================================================== */
+Engine.player = (() => {
+  const CAM_DIST = 6.5;
+  const ATTACK = { range: 2.4, arc: Math.cos(55 * Math.PI / 180), damage: 25, cooldown: 0.55 };
+  const DIFFICULTY_MULT = { easy: 0.6, normal: 1.0 };
+  const JUMP_FORCE = 6.2, GRAVITY = 17;      // ported tuning (world_prototype)
+  let mesh = null, world = null;
+  // jump / rig-animation / camera-shake state (engine-owned, reset on attach)
+  let isGrounded = true, velocityY = 0, airborneOffset = 0;
+  let walkPhase = 0, bobOffset = 0, attackSwingTimer = 0, landSquashTimer = 0, squashBase = 1, lastFootstep = 0;
+  let shakeTime = 0, shakeMag = 0;
+
+  function attach(playerMesh, activeWorld) {
+    mesh = playerMesh; world = activeWorld;
+    isGrounded = true; velocityY = 0; airborneOffset = 0; landSquashTimer = 0;
+  }
+
+  function update(dt) {
+    const s = Engine.state, io = Engine.input;
+    // look
+    s.camYaw   -= io.look.dx * 0.0032;
+    s.camPitch = Math.max(-1.3, Math.min(1.3, s.camPitch - io.look.dy * 0.0032));
+    // movement relative to camera yaw
+    let mx = 0, mz = 0;
+    if (io.down('forward')) mz -= 1; if (io.down('back')) mz += 1;
+    if (io.down('left')) mx -= 1; if (io.down('right')) mx += 1;
+    const len = Math.hypot(mx, mz);
+    if (len > 0.001) { mx /= len; mz /= len; }
+    const sprinting = io.down('sprint') && s.stamina > 1 && len > 0.01;
+    s.sprinting = sprinting;
+    const speed = sprinting ? 6.5 : 3.2;      // ported walk/sprint speeds
+    if (len > 0.001) {
+      const cos = Math.cos(s.camYaw), sin = Math.sin(s.camYaw);
+      const wx = mx * cos - mz * sin, wz = mx * sin + mz * cos;
+      const nx = mesh.position.x + wx * speed * dt, nz = mesh.position.z + wz * speed * dt;
+      // collision vs world obstacles (trees, ruins, wreck...)
+      let blocked = false;
+      if (world && world.obstacles) {
+        for (const obs of world.obstacles) {
+          const dx = nx - obs.position.x, dz = nz - obs.position.z;
+          const r = 0.5 + (obs.userData.radius || 0.6);
+          if (dx * dx + dz * dz < r * r) { blocked = true; break; }
+        }
+      }
+      if (!blocked) { mesh.position.x = nx; mesh.position.z = nz; }
+      s.yaw = Math.atan2(wx, wz);
+      mesh.rotation.y = s.yaw;
+      if (sprinting) s.stamina = Math.max(0, s.stamina - 22 * dt);
+    }
+    if (!sprinting) s.stamina = Math.min(s.maxStamina, s.stamina + 12 * dt);
+    // clamp to world bounds
+    if (world && world.bound) {
+      mesh.position.x = Math.max(-world.bound, Math.min(world.bound, mesh.position.x));
+      mesh.position.z = Math.max(-world.bound, Math.min(world.bound, mesh.position.z));
+    }
+    // jump + gravity
+    if (io.jumpPressed && isGrounded && !s.isDead) {
+      velocityY = JUMP_FORCE; isGrounded = false; Engine.audio.sfx.jump();
+    }
+    if (!isGrounded || airborneOffset > 0) {
+      velocityY -= GRAVITY * dt;
+      airborneOffset += velocityY * dt;
+      if (airborneOffset <= 0) {
+        airborneOffset = 0; velocityY = 0;
+        if (!isGrounded) {
+          isGrounded = true;
+          landSquashTimer = 0.18;
+          squashBase = (world && world.playerParts) ? world.playerParts.group.scale.y : 1;
+          Engine.audio.sfx.land();
+          if (world && world.onLand) world.onLand(mesh.position.x, mesh.position.y, mesh.position.z);
+        }
+      }
+    }
+    animateRig(dt, len > 0.001, sprinting);
+    // ground follow (world supplies terrain height) + walk bob + jump arc
+    const gy = world && world.heightAt ? world.heightAt(mesh.position.x, mesh.position.z) : 0;
+    mesh.position.y = gy + bobOffset + airborneOffset;
+    // attack
+    if (s.attackCooldown > 0) s.attackCooldown -= dt;
+    if (io.attackPressed && s.attackCooldown <= 0) performAttack();
+    // interact -> hand off to world
+    if (io.interactPressed && world && world.onInteract) world.onInteract();
+  }
+
+  /* rig animation ported from animatePlayerRig: walk/sprint swing, attack
+     swing, airborne pose, idle sway, landing squash, footstep cadence. */
+  function animateRig(dt, isMoving, sprinting) {
+    const parts = world && world.playerParts; if (!parts) return;
+    if (!isGrounded) {
+      const rising = velocityY > 0;
+      parts.leftLeg.rotation.x = rising ? -0.9 : -0.4;
+      parts.rightLeg.rotation.x = rising ? -0.7 : -0.5;
+      parts.leftArm.rotation.x = rising ? -0.6 : -0.3;
+      parts.rightArm.rotation.x = rising ? -0.6 : -0.3;
+      bobOffset = 0;
+    } else if (attackSwingTimer > 0) {
+      attackSwingTimer -= dt;
+      const t = 1 - Math.max(0, attackSwingTimer / 0.28);
+      parts.rightArm.rotation.x = -Math.sin(t * Math.PI) * 1.9;
+      parts.leftArm.rotation.x = 0.15 * Math.sin(walkPhase);
+    } else if (isMoving) {
+      walkPhase += dt * (sprinting ? 9 : 6);
+      const swing = Math.sin(walkPhase) * (sprinting ? 0.9 : 0.55);
+      parts.leftLeg.rotation.x = swing;  parts.rightLeg.rotation.x = -swing;
+      parts.leftArm.rotation.x = -swing * 0.8; parts.rightArm.rotation.x = swing * 0.8;
+      bobOffset = Math.abs(Math.sin(walkPhase)) * (sprinting ? 0.08 : 0.04);
+      const t = performance.now() / 1000, interval = sprinting ? 0.28 : 0.42;
+      if (t - lastFootstep > interval) { lastFootstep = t; Engine.audio.noise(0.06, 0.05, 300); }
+    } else {
+      walkPhase += dt * 2;
+      const idle = Math.sin(walkPhase) * 0.03;
+      parts.leftArm.rotation.x = idle; parts.rightArm.rotation.x = -idle; parts.rightArm.rotation.z = 0;
+      parts.leftLeg.rotation.x = 0; parts.rightLeg.rotation.x = 0;
+      bobOffset = 0;
+    }
+    // landing squash-and-stretch (relative to character-size scale)
+    if (landSquashTimer > 0) {
+      landSquashTimer -= dt;
+      if (landSquashTimer <= 0) {
+        parts.group.scale.setScalar(squashBase);
+      } else {
+        const t = Math.max(0, landSquashTimer / 0.18);
+        const squash = 1 - 0.16 * Math.sin(t * Math.PI);
+        parts.group.scale.set(squashBase * (1 + (1 - squash) * 0.5), squashBase * squash, squashBase * (1 + (1 - squash) * 0.5));
+      }
+    }
+  }
+
+  function performAttack() {
+    const s = Engine.state; s.attackCooldown = ATTACK.cooldown;
+    attackSwingTimer = 0.28;
+    Engine.audio.sfx.swing();
+    if (!world || !world.getTargets) return;
+    const fwd = new THREE.Vector3(Math.sin(s.yaw), 0, Math.cos(s.yaw));
+    for (const t of world.getTargets()) {
+      if (t.dead) continue;
+      const to = new THREE.Vector3().subVectors(t.group.position, mesh.position);
+      const dist = to.length(); if (dist > ATTACK.range) continue;
+      to.y = 0; to.normalize();
+      if (fwd.dot(to) < ATTACK.arc) continue;
+      const dmg = ATTACK.damage * (DIFFICULTY_MULT[s.difficulty] || 1);
+      t.hp -= dmg; Engine.audio.sfx.hit();
+      if (t.hp <= 0) {
+        t.dead = true; t.group.visible = false; Engine.audio.sfx.death();
+        Engine.state.kills = (Engine.state.kills || 0) + 1;
+        if (Engine.armory) Engine.armory.checkUnlocks();
+        if (world.onKill) world.onKill(t);
+      }
+    }
+  }
+
+  function updateCamera(dt) {
+    const s = Engine.state;
+    const off = new THREE.Vector3(
+      Math.sin(s.camYaw) * Math.cos(s.camPitch) * CAM_DIST,
+      Math.max(1.4, 2.6 + Math.sin(s.camPitch) * CAM_DIST),
+      Math.cos(s.camYaw) * Math.cos(s.camPitch) * CAM_DIST
+    );
+    const target = mesh.position.clone().add(new THREE.Vector3(0, 1.4, 0));
+    const desired = target.clone().add(off);
+    // keep the camera above the terrain at extreme pitch (ported safety clamp)
+    if (world && world.heightAt) {
+      const gy = world.heightAt(desired.x, desired.z);
+      if (desired.y < gy + 0.4) desired.y = gy + 0.4;
+    }
+    if (shakeTime > 0) {
+      shakeTime -= dt;
+      const falloff = Math.max(0, shakeTime) * shakeMag;
+      desired.x += (Math.random() - 0.5) * falloff;
+      desired.y += (Math.random() - 0.5) * falloff;
+    }
+    camera.position.lerp(desired, 1 - Math.pow(0.001, dt));
+    camera.lookAt(target);
+  }
+
+  function shake(magnitude, duration) { shakeMag = magnitude; shakeTime = duration; }
+
+  function hurt(amount) {
+    const s = Engine.state; if (s.isDead) return;
+    s.hp = Math.max(0, s.hp - amount * (DIFFICULTY_MULT[s.difficulty] || 1));
+    Engine.audio.sfx.hurt(); triggerHurtFlash(); shake(0.6, 0.35);
+    if (s.hp <= 0) { s.isDead = true; if (world && world.onDeath) world.onDeath(); }
+  }
+
+  function snapCamera() {
+    const s = Engine.state;
+    const off = new THREE.Vector3(
+      Math.sin(s.camYaw) * Math.cos(s.camPitch) * CAM_DIST,
+      Math.max(1.4, 2.6 + Math.sin(s.camPitch) * CAM_DIST),
+      Math.cos(s.camYaw) * Math.cos(s.camPitch) * CAM_DIST
+    );
+    const target = mesh.position.clone().add(new THREE.Vector3(0, 1.4, 0));
+    camera.position.copy(target.clone().add(off)); camera.lookAt(target);
+  }
+
+  return { attach, update, updateCamera, snapCamera, performAttack, hurt, shake, CAM_DIST, ATTACK };
+})();
+
+function triggerHurtFlash() {
+  const el = document.getElementById('hurt');
+  el.style.boxShadow = 'inset 0 0 140px 40px rgba(210,40,40,0.5)';
+  setTimeout(() => { el.style.boxShadow = 'inset 0 0 140px 40px rgba(210,40,40,0)'; }, 120);
+}
+
+/* ==========================================================================
+   Engine.settings — shared accessibility (was duplicated, same storage key)
+   ========================================================================== */
+Engine.settings = (() => {
+  const DIFF = ['easy', 'normal'], CB = [['off', false], ['on', true]], GFX = ['low', 'high'];
+  function chip(container, options, current, onPick, labelFn) {
+    container.innerHTML = '';
+    options.forEach((opt) => {
+      const val = Array.isArray(opt) ? opt[1] : opt;
+      const label = labelFn ? labelFn(opt) : (Array.isArray(opt) ? opt[0] : opt);
+      const b = document.createElement('div');
+      b.className = 'choice' + (val === current ? ' active' : '');
+      b.textContent = label; b.onclick = () => { onPick(val); render(); save(); };
+      container.appendChild(b);
+    });
+  }
+  const TEXT = [['small', 'small'], ['normal', 'normal'], ['large', 'large']];
+  const SUBS = [['off', false], ['on', true]];
+  const TEXT_SCALE = { small: 0.85, normal: 1.0, large: 1.3 };
+  function apply() {
+    const s = Engine.state;
+    document.body.style.filter = s.colorblindMode ? 'saturate(1.35) hue-rotate(-12deg)' : 'none';
+    bloomPass.strength = s.graphicsQuality === 'high' ? 0.55 : 0.0;
+    renderer.setPixelRatio(s.graphicsQuality === 'high' ? Math.min(window.devicePixelRatio, 2) : 1);
+    document.documentElement.style.setProperty('--text-scale', TEXT_SCALE[s.textSize] || 1);
+  }
+  function renderKeybinds() {
+    const box = document.getElementById('setKeybinds'); if (!box) return;
+    box.innerHTML = '';
+    const binds = Engine.keybinds.all();
+    Object.keys(binds).forEach((action) => {
+      const row = document.createElement('div'); row.className = 'keyRow';
+      const name = document.createElement('span'); name.className = 'act'; name.textContent = action;
+      const key = document.createElement('span'); key.className = 'bind'; key.textContent = Engine.keybinds.label(binds[action]);
+      key.onclick = () => {
+        if (key.classList.contains('listening')) return;
+        key.classList.add('listening'); key.textContent = 'press\u2026';
+        Engine.input.beginCapture(action, () => renderKeybinds());
+      };
+      row.appendChild(name); row.appendChild(key); box.appendChild(row);
+    });
+  }
+  function render() {
+    const s = Engine.state;
+    chip(document.getElementById('setDifficulty'), DIFF, s.difficulty, (v) => s.difficulty = v);
+    chip(document.getElementById('setColorblind'), CB, s.colorblindMode, (v) => s.colorblindMode = v);
+    chip(document.getElementById('setGraphics'), GFX, s.graphicsQuality, (v) => s.graphicsQuality = v);
+    chip(document.getElementById('setTextSize'), TEXT, s.textSize, (v) => s.textSize = v);
+    chip(document.getElementById('setSubtitles'), SUBS, s.subtitles, (v) => s.subtitles = v);
+    renderKeybinds();
+    apply();
+  }
+  async function save() {
+    const s = Engine.state;
+    await Engine.storage.set('settings:v1', { difficulty: s.difficulty, colorblindMode: s.colorblindMode, graphicsQuality: s.graphicsQuality, textSize: s.textSize, subtitles: s.subtitles });
+  }
+  async function load() {
+    const d = await Engine.storage.get('settings:v1');
+    if (d) { Object.assign(Engine.state, { difficulty: d.difficulty ?? 'normal', colorblindMode: !!d.colorblindMode, graphicsQuality: d.graphicsQuality ?? 'high', textSize: d.textSize ?? 'normal', subtitles: !!d.subtitles }); }
+    apply();
+  }
+  function open() { Engine.state.settingsOpen = true; Engine.state.paused = true; document.getElementById('settingsOverlay').style.display = 'flex'; render(); }
+  function close() { Engine.state.settingsOpen = false; Engine.state.paused = !Engine.state.started; document.getElementById('settingsOverlay').style.display = 'none'; }
+  return { load, open, close, render };
+})();
+document.getElementById('btnSettings').onclick = () => Engine.settings.open();
+document.getElementById('btnCloseSettings').onclick = () => Engine.settings.close();
+document.getElementById('btnResetKeys').onclick = () => { Engine.keybinds.reset(); Engine.settings.render(); };
+
+/* ==========================================================================
+   Engine.choicelog — visible consequence tracking + discoverable lore.
+   Worlds call: Engine.choicelog.record(id,label,outcome)  (a decision)
+                Engine.choicelog.addLore(id,title,text)     (a found fragment)
+   This is the "choice log / lore fragments" feature. Story flags still live
+   in Engine.state for gameplay; this is the player-facing surface of them.
+   ========================================================================== */
+Engine.choicelog = (() => {
+  const decisions = [], lore = [];
+  function persist() { Engine.storage.set('choicelog:v1', { decisions, lore }); }
+  function record(id, label, outcome) {
+    if (decisions.find((d) => d.id === id)) return;
+    decisions.push({ id, label, outcome }); render(); persist();
+    Engine.audio.sfx.blip();
+  }
+  function addLore(id, title, text) {
+    if (lore.find((l) => l.id === id)) return;
+    lore.push({ id, title, text }); render(); persist();
+    Engine.ashketh.say('Fragment recovered: ' + title, 2600);
+  }
+  function render() {
+    const dBox = document.getElementById('logDecisions'), lBox = document.getElementById('logLore');
+    if (!dBox || !lBox) return;
+    dBox.innerHTML = decisions.length ? decisions.map((d) =>
+      `<div class="logItem"><b>${d.label}</b><span class="outcome">${d.outcome}</span></div>`).join('')
+      : '<div class="logEmpty">No decisions recorded yet.</div>';
+    lBox.innerHTML = lore.length ? lore.map((l) =>
+      `<div class="logItem"><b>${l.title}</b><span class="outcome">${l.text}</span></div>`).join('')
+      : '<div class="logEmpty">No lore fragments found yet.</div>';
+  }
+  async function load() {
+    const d = await Engine.storage.get('choicelog:v1');
+    if (d) { (d.decisions || []).forEach((x) => decisions.push(x)); (d.lore || []).forEach((x) => lore.push(x)); }
+    render();
+  }
+  function open() { Engine.state.paused = true; document.getElementById('logOverlay').style.display = 'flex'; render(); }
+  function close() { Engine.state.paused = !Engine.state.started; document.getElementById('logOverlay').style.display = 'none'; }
+  return { record, addLore, load, render, open, close };
+})();
+document.getElementById('btnLog').onclick = () => Engine.choicelog.open();
+document.getElementById('btnCloseLog').onclick = () => Engine.choicelog.close();
+
+/* ==========================================================================
+   Engine.ashketh — shared cinematic voice overlay (used by both worlds:
+   Planet A's fleeting visions + summon, Planet B's musings + trials + ending)
+   Mirrors to on-screen subtitles when the accessibility toggle is on.
+   ========================================================================== */
+Engine.ashketh = {
+  say(text, ms = 3400) {
+    const el = document.getElementById('ashketh');
+    el.textContent = text; el.style.opacity = '1';
+    clearTimeout(this._t); this._t = setTimeout(() => { el.style.opacity = '0'; }, ms);
+    if (Engine.state.subtitles) {
+      const sub = document.getElementById('subtitle');
+      sub.textContent = text; sub.classList.add('show');
+      clearTimeout(this._st); this._st = setTimeout(() => sub.classList.remove('show'), ms);
+    }
+  },
+};
+
+/* ==========================================================================
+   WorldManager — register worlds, swap between them in-app.
+   Replaces window.open('planet_b_prototype.html'): Engine.goto('hollowVerge').
+   World interface:
+     { id, name, mood, build(), enter(), exit(), update(dt),
+       heightAt(x,z), getTargets(), player,
+       onInteract?, onKill?, onDeath? }
+   ========================================================================== */
+const WorldManager = (() => {
+  const worlds = {};
+  let current = null;
+  function register(world) { worlds[world.id] = world; }
+  function goto(id) {
+    const next = worlds[id]; if (!next) { console.warn('no world', id); return; }
+    if (current) { if (current.exit) current.exit(); }
+    if (!next._built) { next.build(); next._built = true; }
+    current = next;
+    renderPass.scene = next.scene;            // retarget the shared composer
+    // apply world mood to grade + ambient
+    if (next.mood) {
+      gradePass.uniforms.tint.value.copy(next.mood.tint || new THREE.Color(1, 1, 1));
+      gradePass.uniforms.exposure.value = next.mood.exposure ?? 1.0;
+      Engine.audio.startAmbient(next.mood.audio || { base: 70, warmth: 0.6 });
+    }
+    Engine.player.attach(next.player, next);
+    document.getElementById('worldName').textContent = next.name;
+    if (next.enter) next.enter();
+    // carry appearance + equipped weapon into the newly-active world, frame it
+    try {
+      if (Engine.charcreate) Engine.charcreate.applyToActive();
+      if (Engine.armory) Engine.armory.buildModel(Engine.armory.DEFS.find((d) => d.id === Engine.armory.st.equipped));
+      if (Engine.player.snapCamera) Engine.player.snapCamera();
+    } catch (e) { /* modules not yet loaded during very first goto — boot re-applies */ }
+  }
+  Engine.goto = goto;                         // exposed so worlds/summon can call it
+  return { register, goto, get current() { return current; } };
+})();
+
+/* ==========================================================================
+   WORLD A — "Kessa's Reach"  (thin proof-of-merge; content ports in next)
+   -------------------------------------------------------------------------
+   PORT: from world_prototype.html — grass/terrain textures, ruins cluster,
+   alien flora, day-night cycle, colony build menu + resources (wood/scrap),
+   companions (Reyes/Osei/Kade) + dialogue trees, rival encounter, weapon
+   armory + progression, ship flight + fuel, Readiness, autosave.
+   Those systems drop into build()/update() and reuse Engine.player/audio/rig.
+   ========================================================================== */
+const WorldA = (() => {
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(0x8a8068, 14, 68);
+  scene.background = null;          // the shader sky dome is the background
+  let player, playerParts;
+  const enemies = [];               // PORT (Phase 2): real wildlife + rivals replace the dummy
+  const mood = { tint: new THREE.Color(1.02, 0.99, 0.9), exposure: 1.02, audio: { base: 68, warmth: 0.85 } };
+  const wst = { timeOfDay: 0.3 };   // world state (colony/resources join in Phase 2)
+
+  const obstacles = [];             // movement collision (Engine.player reads this)
+  const swayables = [], glowFloraPulse = [];
+  const particleSystems = [], dustBursts = [];
+  let hemi, sun, backlight, skyMat, sunSprite, moonSprite, stars, distantPlanet, particleSprite;
+  let windTime = 0, currentSunHeight = 0;
+
+  /* ---- terrain (ported heightAt) ---- */
+  function heightAt(x, z) {
+    return Math.sin(x * 0.07) * 0.8 + Math.cos(z * 0.09) * 0.7 + Math.sin((x + z) * 0.04) * 0.5;
+  }
+
+  /* ---- procedural ground texture: patchy withered grass + roughness map ---- */
+  function makeGrassTexture(size = 512) {
+    const canvas = document.createElement('canvas');
+    canvas.width = size; canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#4a4232'; ctx.fillRect(0, 0, size, size);
+    const roughCanvas = document.createElement('canvas');
+    roughCanvas.width = size; roughCanvas.height = size;
+    const rctx = roughCanvas.getContext('2d');
+    rctx.fillStyle = '#bbbbbb'; rctx.fillRect(0, 0, size, size);
+    // large soft patches (dead vegetation / dirt variation)
+    for (let i = 0; i < 90; i++) {
+      const x = Math.random() * size, y = Math.random() * size, r = 12 + Math.random() * 40;
+      const tones = ['#5a5238', '#453d28', '#635a3f', '#3f3826'];
+      ctx.fillStyle = tones[Math.floor(Math.random() * tones.length)];
+      ctx.globalAlpha = 0.35;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    // bare dirt / ash patches
+    for (let i = 0; i < 34; i++) {
+      const x = Math.random() * size, y = Math.random() * size, r = 8 + Math.random() * 22;
+      ctx.fillStyle = '#3a3226'; ctx.globalAlpha = 0.4;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    // sparse withered scrub dabs
+    const strokeTones = ['#5f5c3a', '#4a4530', '#6b6142', '#3f3a28', '#554e34'];
+    for (let i = 0; i < 260; i++) {
+      const x = Math.random() * size, y = Math.random() * size;
+      const len = 6 + Math.random() * 14, angle = Math.random() * Math.PI * 2, w = 2 + Math.random() * 3;
+      ctx.save(); ctx.translate(x, y); ctx.rotate(angle);
+      ctx.globalAlpha = 0.16 + Math.random() * 0.1;
+      ctx.fillStyle = strokeTones[Math.floor(Math.random() * strokeTones.length)];
+      ctx.beginPath(); ctx.ellipse(0, 0, len / 2, w / 2, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+    // grain to avoid banding + matching roughness variation
+    const imgData = ctx.getImageData(0, 0, size, size);
+    const roughData = rctx.getImageData(0, 0, size, size);
+    for (let i = 0; i < imgData.data.length; i += 4) {
+      const n = (Math.random() - 0.5) * 10;
+      imgData.data[i] = Math.max(0, Math.min(255, imgData.data[i] + n));
+      imgData.data[i + 1] = Math.max(0, Math.min(255, imgData.data[i + 1] + n));
+      imgData.data[i + 2] = Math.max(0, Math.min(255, imgData.data[i + 2] + n * 0.6));
+      const rn = 150 + Math.random() * 80;
+      roughData.data[i] = roughData.data[i + 1] = roughData.data[i + 2] = rn;
+    }
+    ctx.putImageData(imgData, 0, 0);
+    rctx.putImageData(roughData, 0, 0);
+    const map = new THREE.CanvasTexture(canvas);
+    map.wrapS = map.wrapT = THREE.RepeatWrapping; map.repeat.set(28, 28); map.encoding = THREE.sRGBEncoding;
+    const roughnessMap = new THREE.CanvasTexture(roughCanvas);
+    roughnessMap.wrapS = roughnessMap.wrapT = THREE.RepeatWrapping; roughnessMap.repeat.set(28, 28);
+    return { map, roughnessMap };
+  }
+
+  /* ---- sky helpers (glow sprites, stars, distant planet, rim light) ---- */
+  function makeGlowSprite(color, size) {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.35, 'rgba(255,255,255,0.75)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, 128, 128);
+    const tex = new THREE.CanvasTexture(canvas);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    sprite.scale.set(size, size, 1);
+    return sprite;
+  }
+  function makeStars(count = 1400, radius = 430) {
+    const positions = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      const theta = Math.random() * Math.PI * 2, phi = Math.acos(Math.random()); // upper hemisphere
+      positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+      positions[i * 3 + 1] = radius * Math.cos(phi);
+      positions[i * 3 + 2] = radius * Math.sin(phi) * Math.sin(theta);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    return new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 1.6, transparent: true, opacity: 0, depthWrite: false, sizeAttenuation: false }));
+  }
+  function makeDistantPlanet() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256; canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    const bands = ['#8a6a4a', '#a68a5a', '#6a5238', '#c2a06a', '#7a5a3f', '#95764f'];
+    const bandH = canvas.height / bands.length;
+    bands.forEach((c, i) => { ctx.fillStyle = c; ctx.fillRect(0, i * bandH, canvas.width, bandH + 2); });
+    for (let i = 0; i < 160; i++) {
+      ctx.fillStyle = 'rgba(0,0,0,0.08)';
+      ctx.fillRect(Math.random() * 256, Math.random() * 128, 15 + Math.random() * 40, 2);
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    const planet = new THREE.Mesh(new THREE.SphereGeometry(55, 24, 24),
+      new THREE.MeshStandardMaterial({ map: tex, emissive: 0x3a2a18, emissiveIntensity: 0.25, roughness: 1 }));
+    planet.position.set(-320, 130, -260); planet.rotation.z = 0.4;
+    return planet;
+  }
+  function addRimLight(material, color = 0xbfe0ff, intensity = 0.55) {
+    material.onBeforeCompile = (shader) => {
+      shader.uniforms.rimColor = { value: new THREE.Color(color) };
+      shader.uniforms.rimIntensity = { value: intensity };
+      shader.fragmentShader = shader.fragmentShader.replace('#include <common>',
+        '#include <common>\nuniform vec3 rimColor;\nuniform float rimIntensity;');
+      shader.fragmentShader = shader.fragmentShader.replace('#include <dithering_fragment>',
+        '#include <dithering_fragment>\n{\nvec3 viewDirRim = normalize(vViewPosition);\nfloat rim = 1.0 - max(dot(normalize(vNormal), viewDirRim), 0.0);\nrim = pow(rim, 2.5) * rimIntensity;\ngl_FragColor.rgb += rimColor * rim;\n}');
+    };
+    material.needsUpdate = true;
+  }
+
+  /* ---- flora / rocks / ruins / landmarks (ported builders) ---- */
+  function addTree(x, z) {
+    const group = new THREE.Group();
+    const hueShift = (Math.random() - 0.5) * 0.1;
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.3, 1.6, 8), new THREE.MeshStandardMaterial({ color: 0x4a3a2a }));
+    trunk.position.y = 0.8; trunk.castShadow = true;
+    const leaves = new THREE.Mesh(new THREE.ConeGeometry(1.3, 2.6, 10),
+      new THREE.MeshStandardMaterial({ color: new THREE.Color(0x5a5232).offsetHSL(hueShift, 0, 0) }));
+    leaves.position.y = 2.5; leaves.castShadow = true;
+    group.add(trunk, leaves);
+    const scale = 0.85 + Math.random() * 0.4;
+    group.scale.set(scale, scale, scale);
+    group.position.set(x, heightAt(x, z), z);
+    group.userData.radius = 0.6 * scale;
+    scene.add(group); obstacles.push(group);
+    swayables.push({ mesh: leaves, phase: Math.random() * Math.PI * 2, amount: 0.04 });
+  }
+  function addAlienTree(x, z) {
+    const group = new THREE.Group();
+    const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.24, 1.4, 8), new THREE.MeshStandardMaterial({ color: 0x3a3228 }));
+    stalk.position.y = 0.7; stalk.castShadow = true;
+    const capColor = Math.random() > 0.5 ? 0x4a3f52 : 0x3a4a42;
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(1.1, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+      new THREE.MeshStandardMaterial({ color: capColor, emissive: capColor, emissiveIntensity: 0.08 }));
+    cap.position.y = 1.4; cap.rotation.x = Math.PI; cap.castShadow = true;
+    group.add(stalk, cap);
+    const scale = 0.8 + Math.random() * 0.5;
+    group.scale.set(scale, scale, scale);
+    group.position.set(x, heightAt(x, z), z);
+    group.userData.radius = 0.65 * scale;
+    scene.add(group); obstacles.push(group);
+    swayables.push({ mesh: cap, phase: Math.random() * Math.PI * 2, amount: 0.05 });
+  }
+  function addRock(x, z) {
+    const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.6 + Math.random() * 0.5, 1),
+      new THREE.MeshStandardMaterial({ color: 0x8a8a8a, flatShading: true }));
+    rock.position.set(x, heightAt(x, z) + 0.4, z);
+    rock.castShadow = true; rock.userData.radius = 0.7;
+    scene.add(rock); obstacles.push(rock);
+  }
+  function addGlowFlora(x, z) {
+    const group = new THREE.Group();
+    const color = Math.random() > 0.5 ? 0x8ac25a : 0xc2954a;
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.3, 5), new THREE.MeshStandardMaterial({ color: 0x2a2a1e }));
+    stem.position.y = 0.15;
+    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 10),
+      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.45 }));
+    glow.position.y = 0.32;
+    group.add(stem, glow);
+    group.position.set(x, heightAt(x, z), z);
+    scene.add(group);
+    swayables.push({ mesh: group, phase: Math.random() * Math.PI * 2, amount: 0.08 });
+    glowFloraPulse.push({ mat: glow.material, phase: Math.random() * Math.PI * 2 });
+  }
+  function addRuinPillar(x, z, height) {
+    const stone = new THREE.MeshStandardMaterial({ color: 0x3a3a42, flatShading: true });
+    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.5, height, 7), stone);
+    pillar.position.set(x, heightAt(x, z) + height / 2, z);
+    pillar.rotation.z = (Math.random() - 0.5) * 0.15;
+    pillar.castShadow = true; pillar.userData.radius = 0.6;
+    scene.add(pillar); obstacles.push(pillar);
+    if (Math.random() < 0.5) {
+      const moss = new THREE.Mesh(new THREE.SphereGeometry(0.15, 6, 6),
+        new THREE.MeshStandardMaterial({ color: 0x5a6a3a, emissive: 0x3a4a1a, emissiveIntensity: 0.25 }));
+      moss.position.set(x + 0.3, heightAt(x, z) + height * 0.6, z);
+      scene.add(moss);
+    }
+  }
+  function addRuinWall(x, z, rotY, w, h) {
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.5),
+      new THREE.MeshStandardMaterial({ color: 0x35353d, flatShading: true }));
+    wall.position.set(x, heightAt(x, z) + h / 2, z);
+    wall.rotation.y = rotY; wall.rotation.z = (Math.random() - 0.5) * 0.08;
+    wall.castShadow = true; wall.userData.radius = Math.max(w, 0.5) / 2;
+    scene.add(wall); obstacles.push(wall);
+  }
+  function addRuinArch(x, z) {
+    addRuinPillar(x - 1.4, z, 3.2);
+    addRuinPillar(x + 1.4, z, 3.2);
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.5, 0.5),
+      new THREE.MeshStandardMaterial({ color: 0x3a3a42, flatShading: true }));
+    lintel.position.set(x, heightAt(x, z) + 3.4, z);
+    lintel.castShadow = true; scene.add(lintel);
+  }
+  const RUINS_CENTER = { x: 32, z: -9 };
+
+  function buildCrashSite(cx, cz) {
+    const scorch = new THREE.Mesh(new THREE.CircleGeometry(6, 24), new THREE.MeshStandardMaterial({ color: 0x1c1a18, roughness: 1 }));
+    scorch.rotation.x = -Math.PI / 2;
+    scorch.position.set(cx, heightAt(cx, cz) + 0.02, cz);
+    scene.add(scorch);
+    const hull = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.5, 7, 8),
+      new THREE.MeshStandardMaterial({ color: 0x565f66, metalness: 0.4, roughness: 0.6, flatShading: true }));
+    hull.rotation.z = Math.PI / 2 + 0.3;
+    hull.position.set(cx - 1, heightAt(cx, cz) + 1.3, cz - 1);
+    hull.castShadow = true; scene.add(hull);
+    obstacles.push({ position: hull.position, userData: { radius: 3.2 } });
+    const scorchedPanel = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.15, 2.2),
+      new THREE.MeshStandardMaterial({ color: 0x2a1a12, emissive: 0xaa4a1a, emissiveIntensity: 0.35, flatShading: true }));
+    scorchedPanel.position.set(cx + 3, heightAt(cx + 3, cz + 1) + 0.1, cz + 1);
+    scorchedPanel.rotation.y = 0.4; scene.add(scorchedPanel);
+    const crateMat = new THREE.MeshStandardMaterial({ color: 0x7a6a4a, flatShading: true });
+    [[cx + 3.5, cz - 2], [cx + 4.2, cz - 1], [cx - 3, cz + 3]].forEach(([x, z]) => {
+      const crate = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), crateMat);
+      crate.position.set(x, heightAt(x, z) + 0.4, z);
+      crate.rotation.y = Math.random() * Math.PI;
+      crate.castShadow = true; scene.add(crate);
+      obstacles.push({ position: crate.position, userData: { radius: 0.6 } });
+    });
+  }
+  function buildCommsDish(x, z) {
+    const metalMat = new THREE.MeshStandardMaterial({ color: 0x5a6a5f, flatShading: true, metalness: 0.3, roughness: 0.7 });
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.18, 2.4, 8), metalMat);
+    pole.position.set(x, heightAt(x, z) + 1.0, z);
+    pole.rotation.z = 0.9; // knocked over
+    pole.castShadow = true; scene.add(pole);
+    obstacles.push({ position: pole.position, userData: { radius: 1.4 } });
+    const dish = new THREE.Mesh(new THREE.SphereGeometry(1.3, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), metalMat);
+    dish.position.set(x + 1.8, heightAt(x, z) + 0.5, z + 0.4);
+    dish.rotation.x = Math.PI * 0.85; dish.rotation.z = 0.5;
+    dish.castShadow = true; scene.add(dish);
+    for (let i = 0; i < 3; i++) {
+      const coil = new THREE.Mesh(new THREE.TorusGeometry(0.35, 0.06, 6, 12), new THREE.MeshStandardMaterial({ color: 0x2a2a2a }));
+      const cx = x - 1 + Math.random() * 2, cz2 = z - 1 + Math.random() * 2;
+      coil.position.set(cx, heightAt(cx, cz2) + 0.06, cz2);
+      coil.rotation.x = Math.PI / 2; scene.add(coil);
+    }
+  }
+  function addRidgeRock(x, z, scale) {
+    const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(1.1 * scale, 0),
+      new THREE.MeshStandardMaterial({ color: 0x6a6560, flatShading: true }));
+    rock.position.set(x, heightAt(x, z) + 0.5 * scale, z);
+    rock.rotation.set(Math.random(), Math.random(), Math.random());
+    rock.castShadow = true; rock.userData.radius = 1.0 * scale;
+    scene.add(rock); obstacles.push(rock);
+  }
+
+  /* ---- ambient particles + one-shot dust bursts + wind sway ---- */
+  function makeSpriteTexture() {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const ctx = c.getContext('2d');
+    const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, 64, 64);
+    return new THREE.CanvasTexture(c);
+  }
+  function createParticleSystem(opts) {
+    const { count, xRange, zRange, yMin, yMax, color, size, opacity, driftSpeed, centerX = 0, centerZ = 0 } = opts;
+    const positions = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      positions[i * 3] = centerX + (Math.random() - 0.5) * xRange;
+      positions[i * 3 + 1] = yMin + Math.random() * (yMax - yMin);
+      positions[i * 3 + 2] = centerZ + (Math.random() - 0.5) * zRange;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const points = new THREE.Points(geo, new THREE.PointsMaterial({
+      color, size, map: particleSprite, transparent: true, opacity,
+      depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true,
+    }));
+    scene.add(points);
+    particleSystems.push({ points, count, yMin, yMax, driftSpeed });
+  }
+  function spawnDustBurst(x, y, z, count = 14, color = 0xcabf9a, baseOpacity = 0.5) {
+    const positions = new Float32Array(count * 3);
+    const vel = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      positions[i * 3] = x; positions[i * 3 + 1] = y + 0.1; positions[i * 3 + 2] = z;
+      const angle = Math.random() * Math.PI * 2, speed = 0.8 + Math.random() * 1.4;
+      vel[i * 3] = Math.cos(angle) * speed;
+      vel[i * 3 + 1] = 1.2 + Math.random() * 1.2;
+      vel[i * 3 + 2] = Math.sin(angle) * speed;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const points = new THREE.Points(geo, new THREE.PointsMaterial({
+      color, size: 0.22, map: particleSprite, transparent: true, opacity: baseOpacity,
+      depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true,
+    }));
+    scene.add(points);
+    dustBursts.push({ points, count, vel, age: 0, life: 0.6, baseOpacity });
+  }
+  function updateParticles(dt) {
+    particleSystems.forEach((sys) => {
+      const pos = sys.points.geometry.attributes.position.array;
+      for (let i = 0; i < sys.count; i++) {
+        pos[i * 3 + 1] += sys.driftSpeed * dt;
+        if (pos[i * 3 + 1] > sys.yMax) pos[i * 3 + 1] = sys.yMin;
+      }
+      sys.points.geometry.attributes.position.needsUpdate = true;
+    });
+    for (let i = dustBursts.length - 1; i >= 0; i--) {
+      const b = dustBursts[i];
+      b.age += dt;
+      const t = b.age / b.life;
+      if (t >= 1) { scene.remove(b.points); dustBursts.splice(i, 1); continue; }
+      const pos = b.points.geometry.attributes.position.array;
+      for (let j = 0; j < b.count; j++) {
+        pos[j * 3] += b.vel[j * 3] * dt;
+        pos[j * 3 + 1] += b.vel[j * 3 + 1] * dt;
+        pos[j * 3 + 2] += b.vel[j * 3 + 2] * dt;
+        b.vel[j * 3 + 1] -= 4 * dt; // gentle gravity on debris-like dust
+      }
+      b.points.geometry.attributes.position.needsUpdate = true;
+      b.points.material.opacity = b.baseOpacity * (1 - t);
+    }
+  }
+  function updateWindSway(dt) {
+    windTime += dt;
+    swayables.forEach((s) => {
+      s.mesh.rotation.z = Math.sin(windTime * 0.8 + s.phase) * s.amount;
+      s.mesh.rotation.x = Math.cos(windTime * 0.6 + s.phase) * s.amount * 0.6;
+    });
+    glowFloraPulse.forEach((g) => {
+      g.mat.emissiveIntensity = 0.35 + Math.sin(windTime * 1.4 + g.phase) * 0.15;
+    });
+  }
+
+  /* ---- day-night cycle (ported; full cycle = 2 real hours) ---- */
+  function updateDayNight(dt) {
+    wst.timeOfDay = (wst.timeOfDay + dt * (1 / 7200)) % 1;
+    const angle = wst.timeOfDay * Math.PI * 2;
+    const sunHeight = Math.sin(angle);
+    currentSunHeight = sunHeight;
+    const dayFactor = Math.max(0, sunHeight);
+    const nightFactor = Math.max(0, -sunHeight);
+    sun.position.set(Math.cos(angle) * 40, Math.max(sunHeight, 0.05) * 40 + 5, Math.sin(angle) * 20);
+    sun.target.position.copy(player.position);
+    sun.intensity = 0.25 + dayFactor * 0.85;
+    hemi.intensity = 0.2 + dayFactor * 0.4 + nightFactor * 0.12;
+    // hazy overcast day fading to a bleak near-black night
+    const topDay = new THREE.Color(0x6a7268), topNight = new THREE.Color(0x0a0a0c);
+    const botDay = new THREE.Color(0xa89878), botNight = new THREE.Color(0x14120f);
+    const skyT = Math.max(0, sunHeight * 0.85 + 0.18);
+    skyMat.uniforms.topColor.value.copy(topNight).lerp(topDay, skyT);
+    skyMat.uniforms.bottomColor.value.copy(botNight).lerp(botDay, skyT);
+    scene.fog.color.copy(skyMat.uniforms.bottomColor.value);
+    sunSprite.position.copy(sun.position).normalize().multiplyScalar(400);
+    sunSprite.material.opacity = Math.max(0, Math.min(1, sunHeight * 3));
+    const moonAngle = angle + Math.PI, moonHeight = Math.sin(moonAngle);
+    moonSprite.position.set(Math.cos(moonAngle) * 400, Math.max(moonHeight, 0.05) * 300 + 40, Math.sin(moonAngle) * 200);
+    moonSprite.material.opacity = Math.max(0, Math.min(1, -sunHeight * 3));
+    stars.material.opacity = Math.min(0.9, nightFactor * 1.6);
+    distantPlanet.material.emissiveIntensity = 0.15 + nightFactor * 0.3;
+    const badge = document.getElementById('timeBadge');
+    if (sunHeight > 0.55) badge.textContent = '☀️ Day';
+    else if (sunHeight > 0.05) badge.textContent = '🌤️ Dawn/Dusk';
+    else badge.textContent = '🌙 Night';
+  }
+
+  function build() {
+    // lighting — hazy, overcast, desaturated
+    hemi = new THREE.HemisphereLight(0x7a8078, 0x1c1a16, 0.5); scene.add(hemi);
+    sun = new THREE.DirectionalLight(0xcfc3a8, 1.05);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    sun.shadow.camera.left = -40; sun.shadow.camera.right = 40;
+    sun.shadow.camera.top = 40; sun.shadow.camera.bottom = -40;
+    scene.add(sun); scene.add(sun.target);
+    backlight = new THREE.DirectionalLight(0x6a7a7a, 0.3);
+    backlight.position.set(-20, 15, -20); scene.add(backlight);
+    // sky: gradient dome + sun/moon sprites + stars + distant planet
+    skyMat = new THREE.ShaderMaterial({
+      uniforms: {
+        topColor: { value: new THREE.Color(0x6a7268) },
+        bottomColor: { value: new THREE.Color(0xa89878) },
+        offset: { value: 12 }, exponent: { value: 0.7 },
+      },
+      vertexShader: `varying vec3 vWorldPosition;
+        void main() {
+          vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+          vWorldPosition = worldPosition.xyz;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }`,
+      fragmentShader: `uniform vec3 topColor; uniform vec3 bottomColor; uniform float offset; uniform float exponent;
+        varying vec3 vWorldPosition;
+        void main() {
+          float h = normalize(vWorldPosition + vec3(0.0, offset, 0.0)).y;
+          gl_FragColor = vec4(mix(bottomColor, topColor, max(pow(max(h, 0.0), exponent), 0.0)), 1.0);
+        }`,
+      side: THREE.BackSide, depthWrite: false,
+    });
+    scene.add(new THREE.Mesh(new THREE.SphereGeometry(450, 32, 16), skyMat));
+    sunSprite = makeGlowSprite(0xd8c9a0, 62);
+    moonSprite = makeGlowSprite(0x9aa090, 40);
+    scene.add(sunSprite, moonSprite);
+    stars = makeStars(); scene.add(stars);
+    distantPlanet = makeDistantPlanet(); scene.add(distantPlanet);
+    // ground with displaced terrain + procedural grass
+    const groundGeo = new THREE.PlaneGeometry(200, 200, 80, 80);
+    const pos = groundGeo.attributes.position;
+    for (let i = 0; i < pos.count; i++) pos.setZ(i, heightAt(pos.getX(i), -pos.getY(i)));
+    groundGeo.computeVertexNormals();
+    const grassTex = makeGrassTexture();
+    const ground = new THREE.Mesh(groundGeo, new THREE.MeshStandardMaterial({ map: grassTex.map, roughnessMap: grassTex.roughnessMap, roughness: 1, metalness: 0 }));
+    ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true;
+    scene.add(ground);
+    // scattered flora/rocks (ported counts + distributions)
+    for (let i = 0; i < 26; i++) {
+      const angle = Math.random() * Math.PI * 2, dist = 8 + Math.random() * 35;
+      const x = Math.cos(angle) * dist, z = Math.sin(angle) * dist;
+      if (Math.random() < 0.3) addAlienTree(x, z); else addTree(x, z);
+    }
+    for (let i = 0; i < 10; i++) {
+      const angle = Math.random() * Math.PI * 2, dist = 5 + Math.random() * 30;
+      addRock(Math.cos(angle) * dist, Math.sin(angle) * dist);
+    }
+    for (let i = 0; i < 18; i++) {
+      const angle = Math.random() * Math.PI * 2, dist = 4 + Math.random() * 38;
+      addGlowFlora(Math.cos(angle) * dist, Math.sin(angle) * dist);
+    }
+    // ruins cluster — "the old structures" Osei keeps referencing, to the east
+    addRuinArch(RUINS_CENTER.x, RUINS_CENTER.z);
+    addRuinPillar(RUINS_CENTER.x - 4, RUINS_CENTER.z + 3, 2.1);
+    addRuinPillar(RUINS_CENTER.x + 3.5, RUINS_CENTER.z - 3, 1.4);
+    addRuinPillar(RUINS_CENTER.x - 2, RUINS_CENTER.z - 5, 2.6);
+    addRuinWall(RUINS_CENTER.x + 5, RUINS_CENTER.z + 2, 0.4, 3.5, 2.3);
+    addRuinWall(RUINS_CENTER.x - 6, RUINS_CENTER.z - 1, -0.3, 2.8, 1.8);
+    addRuinWall(RUINS_CENTER.x + 1, RUINS_CENTER.z + 6, 1.1, 2.2, 1.5);
+    // landmarks: crash site, broken comms dish, ridge rocks framing the skirmish site
+    buildCrashSite(0, 15);
+    buildCommsDish(17, -4);
+    [[-27, 10, 1.4], [-26, 18, 1.1], [-13, 19, 1.3], [-16, 10, 1.0], [-24, 21, 1.6], [-16, 12, 1.2]]
+      .forEach(([x, z, s]) => addRidgeRock(x, z, s));
+    // ambient particles: drifting dust everywhere + embers around the crash site
+    particleSprite = makeSpriteTexture();
+    createParticleSystem({ count: 160, xRange: 95, zRange: 95, yMin: 0.3, yMax: 4.5, color: 0xa89878, size: 0.13, opacity: 0.22, driftSpeed: 0.15 });
+    createParticleSystem({ count: 45, xRange: 10, zRange: 10, yMin: 0.2, yMax: 3.2, color: 0xff8844, size: 0.18, opacity: 0.55, driftSpeed: 0.7, centerX: 0, centerZ: 15 });
+    // player (shared rig) at the ported spawn point, with the painterly rim light
+    playerParts = Engine.rig.makeHumanoidParts(0x4f8ff0, { legColor: 0x262b35 });
+    addRimLight(playerParts.torso.material, 0x8a9a8a, 0.3);
+    addRimLight(playerParts.head.material, 0x8a9a8a, 0.25);
+    [playerParts.leftArm, playerParts.rightArm, playerParts.leftLeg, playerParts.rightLeg]
+      .forEach((p) => addRimLight(p.children[0].material, 0x8a9a8a, 0.2));
+    player = playerParts.group;
+    player.position.set(0, heightAt(0, 5), 5);
+    scene.add(player);
+    Engine.rig.applyCharacterConfig(playerParts).then((sz) => player.scale.setScalar(sz));
+    // one dummy target proving shared combat + kill flow (Phase 2: real wildlife)
+    spawnDummy(6, -6);
+  }
+  function spawnDummy(x, z) {
+    const g = Engine.rig.makeHumanoidParts(0xe2574c).group;
+    g.position.set(x, 0, z); g.scale.setScalar(0.95); scene.add(g);
+    enemies.push({ group: g, hp: 60, dead: false });
+  }
+  function enter() { Object.assign(Engine.state, { maxHp: 140, hp: Engine.state.hp || 140 }); }
+  function getTargets() { return enemies; }
+  function onKill() {
+    Engine.ashketh.say('A test passed. Kessa\u2019s Reach remembers.', 2600);
+    // DEMO: a real Planet-A decision (rival fight/truce, etc.) records like this.
+    Engine.choicelog.record('demoA_firstBlood', 'First Blood on the Reach', 'You met the frontier\u2019s threat head-on.');
+  }
+  function onLand(x, y, z) { spawnDustBurst(x, heightAt(x, z), z); }
+  function update(dt) {
+    Engine.player.update(dt);
+    Engine.player.updateCamera(dt);
+    updateDayNight(dt);
+    updateParticles(dt);
+    updateWindSway(dt);
+    for (const e of enemies) if (!e.dead) e.group.position.y = heightAt(e.group.position.x, e.group.position.z);
+  }
+  function onInteract() {
+    // DEMO: discoverable lore in the ruins records like this.
+    Engine.choicelog.addLore('demoA_pillar', 'Weathered Pillar', 'Glyphs beneath the moss pulse faintly when you near them \u2014 not decoration. A signal.');
+  }
+  return { id: 'kessasReach', name: "Kessa's Reach", scene, mood, build, enter, update, heightAt, getTargets, onKill, onInteract, onLand,
+    obstacles, bound: 48, state: wst, RUINS_CENTER,
+    getLandmarks() { return [
+      { name: 'Colony Beacon', x: 3, z: 2, type: 'home' },
+      { name: 'Crash Site', x: 0, z: 15, type: 'place' },
+      { name: 'The Ruins', x: RUINS_CENTER.x, z: RUINS_CENTER.z, type: 'story' },
+      { name: 'Skirmish Ridge', x: -20, z: 14, type: 'story' },
+    ]; },
+    get player() { return player; }, get playerParts() { return playerParts; } };
+})();
+
+/* ==========================================================================
+   WORLD B — "The Hollow Verge"  (thin proof-of-merge; content ports in next)
+   -------------------------------------------------------------------------
+   PORT: from planet_b_prototype.html — ring-world geometry + pillars/debris,
+   guardian constructs + mutants, the three Threshold trials (Strength /
+   Restraint / Cooperation), footholds, choice-echo from Planet A flags,
+   Ashketh musings, the ending sequence.
+   ========================================================================== */
+const WorldB = (() => {
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(0x0a1420, 14, 70);
+  scene.background = new THREE.Color(0x0a1018);
+  let player, playerParts;
+  const enemies = [];
+  const mood = { tint: new THREE.Color(0.86, 0.94, 1.08), exposure: 0.96, audio: { base: 52, warmth: 0.2 } };
+
+  function heightAt() { return 0; } // ring-world floor is flat
+
+  function build() {
+    scene.add(new THREE.HemisphereLight(0x3a4a6a, 0x05080e, 0.6));
+    const key = new THREE.DirectionalLight(0xbcd4ff, 0.9); key.position.set(-20, 40, -10); key.castShadow = true; scene.add(key);
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x1a2230, roughness: 0.5, metalness: 0.4 }));
+    floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+    // glowing structural pillars (PORT: addPillar / addFloorGlowLine / addDebris)
+    for (let i = 0; i < 10; i++) {
+      const x = (Math.random() - 0.5) * 70, z = (Math.random() - 0.5) * 70;
+      const p = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.0, 16, 8), new THREE.MeshStandardMaterial({ color: 0x2a3550, emissive: 0x1c3560, emissiveIntensity: 0.6 }));
+      p.position.set(x, 8, z); p.castShadow = true; scene.add(p);
+    }
+    playerParts = Engine.rig.makeHumanoidParts(0x4f8ff0, { legColor: 0x262b35 });
+    player = playerParts.group; scene.add(player);
+    Engine.rig.applyCharacterConfig(playerParts).then((sz) => player.scale.setScalar(sz));
+    spawnDummy(-6, -6);
+    // (no need to assign WorldB.player/scene — exposed via getter + property below)
+  }
+  function spawnDummy(x, z) {
+    const g = Engine.rig.makeHumanoidParts(0x8fd0ff).group;
+    g.position.set(x, 0, z); g.scale.setScalar(0.95); scene.add(g);
+    enemies.push({ group: g, hp: 60, dead: false });
+  }
+  function enter() { Engine.ashketh.say('You stand at the threshold, Commander. Be measured.', 3800); }
+  function getTargets() { return enemies; }
+  function onKill() { Engine.ashketh.say('Strength, then. But strength was never the question.', 3000); }
+  function update(dt) {
+    Engine.player.update(dt);
+    Engine.player.updateCamera(dt);
+  }
+  function onInteract() {
+    Engine.choicelog.addLore('demoB_pillar', 'Architect Conduit', 'The pillar\u2019s light answers your presence. Something here has been waiting a very long time.');
+  }
+  return { id: 'hollowVerge', name: 'The Hollow Verge', scene, mood, build, enter, update, heightAt, getTargets, onKill, onInteract,
+    getLandmarks() { return [
+      { name: 'The Threshold', x: 0, z: -28, type: 'story' },
+      { name: 'Waypoint Beacon', x: 10, z: 6, type: 'home' },
+      { name: 'Repair Station', x: -12, z: 8, type: 'home' },
+    ]; },
+    get player() { return player; }, get playerParts() { return playerParts; } };
+})();
+
+WorldManager.register(WorldA);
+WorldManager.register(WorldB);
+
+/* ---- dev world switches (temporary). Real path: Engine.goto('hollowVerge')
+        fired by Planet A's Ashketh summon at Readiness 100.               ---- */
+document.getElementById('btnWorldA').onclick = () => Engine.goto('kessasReach');
+document.getElementById('btnWorldB').onclick = () => Engine.goto('hollowVerge');
+
+/* ==========================================================================
+   HUD + main loop (single loop; dispatches to the active world)
+   ========================================================================== */
+function updateHUD() {
+  const s = Engine.state;
+  document.getElementById('hpFill').style.width = (100 * s.hp / s.maxHp) + '%';
+  document.getElementById('stFill').style.width = (100 * s.stamina / s.maxStamina) + '%';
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(0.05, clock.getDelta());
+  const w = WorldManager.current;
+  if (!w) { composer.render(); Engine.input.endFrame(); return; }
+  if (Engine.state.paused) { composer.render(); Engine.input.endFrame(); return; }
+  w.update(dt);
+  gradePass.uniforms.time.value += dt;
+  updateHUD();
+  composer.render();
+  Engine.input.endFrame();     // consume edge-triggered inputs after the frame
+}
+
+/* ==========================================================================
+   Engine.charcreate — start screen + character customization.
+   Writes character:config (both worlds read it); applies live to the active
+   player rig so the preview updates as you choose. Ported from Planet A.
+   ========================================================================== */
+Engine.charcreate = (() => {
+  const SIZES = ['small', 'standard', 'large'];
+  const BUILDS = { slim: { top: 0.27, bottom: 0.31 }, standard: { top: 0.32, bottom: 0.36 }, heavy: { top: 0.40, bottom: 0.44 } };
+  const SUIT = [0x4f8ff0, 0xe2574c, 0x4fd18a, 0xe2b04c, 0x9b6fe0, 0x2a2f3a, 0xe08fc0, 0x6fe0e0];
+  const LEG = [0x262b35, 0x4a3a2f, 0x3a3f4a, 0x5a2a2a, 0x2a4a3a, 0x1a1a1a];
+  const SKIN = [0xf0c89a, 0xd9a876, 0xb87f56, 0x8a5a3a, 0x5c3a26];
+  const cfg = { size: 'standard', build: 'standard', suitColor: SUIT[0], legColor: LEG[0], skinColor: SKIN[0] };
+
+  function applyTo(parts) {
+    if (!parts) return;
+    parts.group.scale.setScalar(Engine.rig.CC_SIZES[cfg.size] || 1);
+    const b = BUILDS[cfg.build] || BUILDS.standard;
+    parts.torso.geometry.dispose();
+    parts.torso.geometry = new THREE.CylinderGeometry(b.top, b.bottom, 0.8, 12);
+    parts.torso.material.color.setHex(cfg.suitColor);
+    parts.leftArm.children[0].material.color.setHex(cfg.suitColor);
+    parts.rightArm.children[0].material.color.setHex(cfg.suitColor);
+    parts.leftLeg.children[0].material.color.setHex(cfg.legColor);
+    parts.rightLeg.children[0].material.color.setHex(cfg.legColor);
+    parts.head.material.color.setHex(cfg.skinColor);
+  }
+  function applyToActive() { const w = WorldManager.current; if (w && w.playerParts) applyTo(w.playerParts); }
+  function persist() { Engine.storage.set('character:config', { size: cfg.size, build: cfg.build, suitColor: cfg.suitColor, legColor: cfg.legColor, skin: cfg.skinColor }); }
+
+  function chip(id, opts, cur, pick) {
+    const box = document.getElementById(id); if (!box) return; box.innerHTML = '';
+    opts.forEach((o) => { const b = document.createElement('div'); b.className = 'choice' + (o === cur ? ' active' : ''); b.textContent = o; b.onclick = () => { pick(o); render(); }; box.appendChild(b); });
+  }
+  function swatch(id, colors, cur, pick) {
+    const box = document.getElementById(id); if (!box) return; box.innerHTML = '';
+    colors.forEach((c) => { const s = document.createElement('div'); s.className = 'swatch' + (c === cur ? ' active' : ''); s.style.background = '#' + c.toString(16).padStart(6, '0'); s.onclick = () => { pick(c); render(); }; box.appendChild(s); });
+  }
+  function render() {
+    chip('ccSize', SIZES, cfg.size, (v) => cfg.size = v);
+    chip('ccBuild', Object.keys(BUILDS), cfg.build, (v) => cfg.build = v);
+    swatch('ccSuit', SUIT, cfg.suitColor, (v) => cfg.suitColor = v);
+    swatch('ccLeg', LEG, cfg.legColor, (v) => cfg.legColor = v);
+    swatch('ccSkin', SKIN, cfg.skinColor, (v) => cfg.skinColor = v);
+    applyToActive();
+  }
+  function open() { Engine.state.paused = true; document.getElementById('startOverlay').style.display = 'flex'; render(); applyToActive(); if (Engine.player.snapCamera) Engine.player.snapCamera(); }
+  function begin() {
+    persist(); Engine.state.paused = false; Engine.state.started = true;
+    document.getElementById('startOverlay').style.display = 'none';
+    if (Engine.armory) Engine.armory.equip(Engine.armory.st.equipped); // build held weapon
+    if (Engine.player.snapCamera) Engine.player.snapCamera();
+    Engine.ashketh.say('Kessa\u2019s Reach. Cold, green, and watching. Make your foothold, Commander.', 4200);
+  }
+  async function load() {
+    const d = await Engine.storage.get('character:config');
+    if (d) { cfg.size = d.size ?? 'standard'; cfg.build = d.build ?? 'standard'; cfg.suitColor = d.suitColor ?? SUIT[0]; cfg.legColor = d.legColor ?? LEG[0]; cfg.skinColor = (d.skin ?? d.skinColor) ?? SKIN[0]; }
+  }
+  return { load, open, begin, applyToActive };
+})();
+document.getElementById('btnBegin').onclick = () => Engine.charcreate.begin();
+
+/* ==========================================================================
+   Engine.map — shared overlay map. Each world supplies getLandmarks().
+   Ported/simplified from Planet A's drawMap.
+   ========================================================================== */
+Engine.map = (() => {
+  let canvas, ctx; const scale = 3.4; let cx = 0, cz = 0;
+  function toXY(x, z, w, h) { return { x: w / 2 + (x - cx) * scale, y: h / 2 + (z - cz) * scale }; }
+  function draw() {
+    if (!canvas) canvas = document.getElementById('mapCanvas');
+    const wrap = document.getElementById('mapCanvasWrap'); if (!wrap) return;
+    const w = canvas.width = wrap.clientWidth, h = canvas.height = wrap.clientHeight;
+    ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#12161d'; ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 1;
+    const step = scale * 10;
+    for (let gx = ((w / 2 - cx * scale) % step + step) % step; gx < w; gx += step) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, h); ctx.stroke(); }
+    for (let gy = ((h / 2 - cz * scale) % step + step) % step; gy < h; gy += step) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(w, gy); ctx.stroke(); }
+    const world = WorldManager.current;
+    const lms = world && world.getLandmarks ? world.getLandmarks() : [];
+    lms.forEach((lm) => {
+      const p = toXY(lm.x, lm.z, w, h);
+      ctx.beginPath(); ctx.arc(p.x, p.y, 7, 0, Math.PI * 2);
+      ctx.fillStyle = lm.type === 'home' ? '#e2b04c' : lm.type === 'story' ? '#4fd1c5' : '#8a8f8a';
+      ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.fillStyle = '#cfd8e6'; ctx.font = '11px sans-serif'; ctx.fillText(lm.name, p.x + 11, p.y + 4);
+    });
+    const pl = world && world.player;
+    if (pl) {
+      const pp = toXY(pl.position.x, pl.position.z, w, h);
+      ctx.save(); ctx.translate(pp.x, pp.y); ctx.rotate(Engine.state.yaw);
+      ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(6, 7); ctx.lineTo(-6, 7); ctx.closePath();
+      ctx.fillStyle = '#6fe0c5'; ctx.fill(); ctx.restore();
+    }
+  }
+  function open() { Engine.state.paused = true; document.getElementById('mapOverlay').style.display = 'flex'; const w = WorldManager.current; if (w && w.player) { cx = w.player.position.x; cz = w.player.position.z; } draw(); }
+  function close() { Engine.state.paused = !Engine.state.started; document.getElementById('mapOverlay').style.display = 'none'; }
+  return { open, close, draw };
+})();
+document.getElementById('btnMap').onclick = () => Engine.map.open();
+document.getElementById('btnCloseMap').onclick = () => Engine.map.close();
+
+/* ==========================================================================
+   Engine.armory — shared weapon progression + equip. Ported from Planet A.
+   Equipping tunes the shared melee stats and attaches a held model to the rig.
+   (Kills unlock melee tiers now; Readiness-gated weapons unlock once Readiness
+   is ported — they show their requirement until then.)
+   ========================================================================== */
+Engine.armory = (() => {
+  const DEFS = [
+    { id: 'stick', name: 'Branch', tagline: 'Whatever you grabbed from the wreck.', type: 'melee', damage: 14, range: 2.1, cooldown: 0.5, unlock: { type: 'always' } },
+    { id: 'bat', name: 'Scrap Bat', tagline: 'Salvaged metal, heavier, slower.', type: 'melee', damage: 24, range: 2.3, cooldown: 0.68, unlock: { type: 'kills', value: 3 } },
+    { id: 'sword', name: 'Fabricated Blade', tagline: 'Balanced, fast, precise.', type: 'melee', damage: 32, range: 2.6, cooldown: 0.42, unlock: { type: 'kills', value: 8 } },
+    { id: 'gun', name: 'Sidearm', tagline: 'Ranged. (ranged fire ported later)', type: 'ranged', damage: 20, range: 22, cooldown: 0.32, unlock: { type: 'readiness', value: 40 } },
+    { id: 'rpg', name: 'Launcher', tagline: 'Explosive. (ranged fire ported later)', type: 'explosive', damage: 65, range: 30, cooldown: 1.7, splashRadius: 3.6, unlock: { type: 'readiness', value: 75 } },
+  ];
+  const st = { equipped: 'stick', unlocked: new Set(['stick']) };
+  function isUnlocked(def) {
+    if (def.unlock.type === 'always') return true;
+    if (def.unlock.type === 'kills') return (Engine.state.kills || 0) >= def.unlock.value;
+    return false; // readiness-gated: unlock once Readiness is ported
+  }
+  function reqText(def) {
+    if (def.unlock.type === 'kills') return `Unlock: defeat ${def.unlock.value} (${Math.min(Engine.state.kills || 0, def.unlock.value)}/${def.unlock.value})`;
+    if (def.unlock.type === 'readiness') return `Unlock: reach ${def.unlock.value}% Readiness`;
+    return '';
+  }
+  function checkUnlocks() {
+    DEFS.forEach((d) => { if (!st.unlocked.has(d.id) && isUnlocked(d)) { st.unlocked.add(d.id); Engine.ashketh.say('Weapon available: ' + d.name, 2400); persist(); } });
+    render();
+  }
+  function buildModel(def) {
+    const w = WorldManager.current; if (!w || !w.playerParts) return;
+    const slot = w.playerParts.weaponSlot; if (!slot) return;
+    if (slot._weapon) { slot.remove(slot._weapon); slot._weapon = null; }
+    const g = new THREE.Group();
+    const mat = new THREE.MeshStandardMaterial({ color: def.type === 'melee' ? 0x9a7b4a : 0x384050, metalness: 0.5, roughness: 0.5 });
+    if (def.type === 'melee') { const m = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.9, 0.06), mat); m.position.y = -0.5; g.add(m); }
+    else { const m = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.16, 0.5), mat); m.position.set(0, -0.5, 0.2); g.add(m); }
+    g.position.set(0, -0.1, 0); slot.add(g); slot._weapon = g;
+  }
+  function equip(id) {
+    const def = DEFS.find((d) => d.id === id); if (!def || !st.unlocked.has(id)) return;
+    st.equipped = id;
+    Engine.player.ATTACK.damage = def.damage; Engine.player.ATTACK.range = def.range; Engine.player.ATTACK.cooldown = def.cooldown;
+    buildModel(def); persist(); render(); Engine.audio.sfx.blip();
+  }
+  function render() {
+    const list = document.getElementById('armoryList'); if (!list) return; list.innerHTML = '';
+    DEFS.forEach((def) => {
+      const unlocked = st.unlocked.has(def.id), equipped = st.equipped === def.id;
+      const card = document.createElement('div');
+      card.className = 'weaponCard' + (equipped ? ' equipped' : '') + (!unlocked ? ' locked' : '');
+      const stats = def.type === 'melee' ? `Dmg ${def.damage} \u00b7 Range ${def.range} \u00b7 CD ${def.cooldown}s` : `Dmg ${def.damage} \u00b7 Range ${def.range}`;
+      card.innerHTML = `<div class="wRow"><div><div class="wName">${def.name}</div><div class="wTag">${def.tagline}</div></div>
+        <button ${(!unlocked || equipped) ? 'disabled' : ''}>${equipped ? 'Equipped' : (unlocked ? 'Equip' : 'Locked')}</button></div>
+        <div class="wStats">${stats}${!unlocked ? ' \u00b7 ' + reqText(def) : ''}</div>`;
+      if (unlocked && !equipped) card.querySelector('button').onclick = () => equip(def.id);
+      list.appendChild(card);
+    });
+  }
+  function persist() { Engine.storage.set('weapon:state', { equipped: st.equipped, unlocked: [...st.unlocked] }); }
+  async function load() { const d = await Engine.storage.get('weapon:state'); if (d) { st.equipped = d.equipped || 'stick'; (d.unlocked || ['stick']).forEach((x) => st.unlocked.add(x)); } }
+  function open() { Engine.state.paused = true; document.getElementById('armoryOverlay').style.display = 'flex'; render(); }
+  function close() { Engine.state.paused = !Engine.state.started; document.getElementById('armoryOverlay').style.display = 'none'; }
+  return { DEFS, st, isUnlocked, checkUnlocks, buildModel, equip, render, load, open, close };
+})();
+document.getElementById('btnArmory').onclick = () => Engine.armory.open();
+document.getElementById('btnCloseArmory').onclick = () => Engine.armory.close();
+
+/* ---- boot ---- */
+(async function boot() {
+  await Engine.keybinds.load();     // remappable controls before input matters
+  await Engine.settings.load();     // shared settings before first frame
+  await Engine.choicelog.load();    // restore any recorded decisions / lore
+  await Engine.charcreate.load();   // restore saved appearance
+  await Engine.armory.load();       // restore equipped/unlocked weapons
+  Engine.goto('kessasReach');       // build + frame the world behind the start screen
+  Engine.charcreate.open();         // Start / customization; gameplay paused until "Begin"
+  animate();
+})();
+</script>
+</body>
+</html>
