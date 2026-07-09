@@ -122,6 +122,98 @@
   .mapLegend span::before { content: '\25CF'; margin-right: 5px; }
   .lg-home::before { color: #e2b04c; } .lg-story::before { color: #4fd1c5; } .lg-place::before { color: #8a8f8a; }
 
+  /* ---- Planet A gameplay UI (ported from world_prototype) ---- */
+  #resourceBadge, #scrapBadge, #colonyBadge, #readinessBadge, #weaponBadge {
+    font-size: 12px; background: rgba(14,18,28,.72); border: 1px solid rgba(255,255,255,.14);
+    border-radius: 8px; padding: 4px 10px; margin-bottom: 5px; display: inline-block; clear: both; float: left;
+  }
+  #readinessBadge { cursor: pointer; pointer-events: auto; }
+  #hud .hudBadges { display: flex; flex-direction: column; align-items: flex-start; }
+  #enemyHpBox {
+    background: rgba(14,18,28,.85); padding: 6px 12px; border-radius: 10px;
+    border: 1px solid rgba(226,87,76,.35); font-size: 11px; font-weight: 700;
+    letter-spacing: .04em; display: none; margin-top: 4px;
+  }
+  #enemyHpBox .enemyBarTrack { width: 140px; height: 7px; border-radius: 4px; background: rgba(255,255,255,.12); overflow: hidden; margin-top: 4px; }
+  #enemyHpFill { height: 100%; background: linear-gradient(90deg,#e2574c,#ff8a80); border-radius: 4px; transition: width .15s linear; }
+
+  #dialogBox, #buildBox {
+    position: fixed; left: 16px; right: 16px; bottom: 130px;
+    background: rgba(13,17,25,.94); border: 1px solid rgba(255,255,255,.12);
+    border-radius: 12px; padding: 14px 16px; display: none; max-width: 460px; margin: 0 auto; z-index: 18;
+  }
+  #buildBox { border-color: rgba(111,224,197,.3); }
+  #dialogBox .who, #buildBox .who { font-size: 11px; color: #6fe0c5; font-weight: 700; letter-spacing: .06em; margin-bottom: 4px; }
+  #dialogBox .line { font-size: calc(14px * var(--text-scale,1)); line-height: 1.4; transition: opacity .3s ease; }
+  #dialogBox .line.dialogRefreshing { opacity: .55; }
+  #dialogBox .hint { margin-top: 8px; font-size: 11px; color: #9aa0b0; }
+  #dialogChoices { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+  #dialogChoices button, .buildOption button, #buildCloseBtn, #readinessCloseBtn {
+    cursor: pointer; text-align: left; background: rgba(111,224,197,.12); border: 1px solid rgba(111,224,197,.35);
+    color: #e8ecf2; font-size: calc(13px * var(--text-scale,1)); font-weight: 600; padding: 10px 12px; border-radius: 8px;
+  }
+  .buildOption { display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+  .buildOption .info { font-size: 13px; }
+  .buildOption .info .name { font-weight: 700; }
+  .buildOption .info .sub { font-size: 11px; color: #9aa0b0; margin-top: 2px; }
+  .buildOption button { padding: 8px 14px; font-size: 12px; font-weight: 700; }
+  .buildOption button:disabled { opacity: .35; cursor: default; }
+  #buildCloseBtn, #readinessCloseBtn { width: 100%; margin-top: 4px; text-align: center; background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.12); }
+
+  #encounterBox {
+    position: fixed; left: 16px; right: 16px; top: 50%; transform: translateY(-50%);
+    background: rgba(16,20,26,.94); border: 1px solid rgba(226,87,76,.4); border-radius: 14px;
+    padding: 18px 18px 16px; display: none; max-width: 480px; margin: 0 auto; z-index: 28;
+    box-shadow: 0 8px 40px rgba(0,0,0,.5);
+  }
+  #encounterBox .who { font-size: 11px; color: #e2574c; font-weight: 700; letter-spacing: .08em; margin-bottom: 8px; }
+  #encounterBox .line { font-size: calc(14px * var(--text-scale,1)); line-height: 1.5; margin-bottom: 14px; }
+  #encounterChoices { display: flex; flex-direction: column; gap: 8px; }
+  #encounterChoices button { cursor: pointer; text-align: left; background: rgba(226,87,76,.1); border: 1px solid rgba(226,87,76,.35); color: #e8ecf2; font-size: calc(13px * var(--text-scale,1)); font-weight: 700; padding: 12px 14px; border-radius: 8px; }
+  #encounterChoices button.truceOpt { background: rgba(111,224,197,.1); border-color: rgba(111,224,197,.35); }
+
+  #readinessPanel {
+    position: fixed; left: 16px; right: 16px; top: 50%; transform: translateY(-50%);
+    background: rgba(16,20,26,.95); border: 1px solid rgba(111,224,197,.35); border-radius: 14px;
+    padding: 18px; display: none; max-width: 440px; margin: 0 auto; z-index: 22;
+  }
+  #readinessPanel h3 { margin: 0 0 4px; font-size: 15px; color: #6fe0c5; }
+  #readinessPanel .sub { font-size: 11px; color: #9aa0b0; margin-bottom: 14px; }
+  .readinessRow { margin-bottom: 12px; }
+  .readinessRow .label { display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; margin-bottom: 4px; }
+  .readinessRow .track { width: 100%; height: 8px; border-radius: 5px; background: rgba(255,255,255,.08); overflow: hidden; }
+  .readinessRow .fill { height: 100%; border-radius: 5px; background: linear-gradient(90deg, #6fe0c5, #4f8ff0); }
+
+  #visionOverlay {
+    position: fixed; inset: 0; background: rgba(6,8,12,0); display: none;
+    align-items: center; justify-content: center; text-align: center; padding: 40px;
+    z-index: 20; pointer-events: none; transition: background 1.2s ease;
+  }
+  #visionOverlay p { font-size: calc(15px * var(--text-scale,1)); color: #cfe8ff; max-width: 420px; opacity: 0; transition: opacity 1.5s ease; text-shadow: 0 0 12px rgba(111,180,255,.6); letter-spacing: .02em; line-height: 1.6; }
+
+  #gameOverOverlay {
+    position: fixed; inset: 0; background: rgba(8,4,4,.9); display: none;
+    align-items: center; justify-content: center; flex-direction: column; text-align: center; z-index: 35; padding: 20px;
+  }
+  #gameOverOverlay h2 { font-size: 24px; margin: 0 0 8px; color: #e2574c; }
+  #gameOverOverlay p { color: #9aa0b0; margin: 0 0 20px; font-size: 14px; max-width: 320px; }
+  #gameOverOverlay button { cursor: pointer; width: 200px; padding: 12px; border: none; border-radius: 8px; background: #6fe0c5; color: #0b1116; font-weight: 700; font-size: 14px; }
+
+  #weaponToast {
+    position: fixed; top: 70px; left: 50%; transform: translateX(-50%) translateY(-10px);
+    background: rgba(10,14,20,.92); border: 1px solid #6fe0c5; border-radius: 10px; padding: 10px 18px;
+    font-weight: 700; font-size: 13px; color: #6fe0c5; opacity: 0; transition: all .3s ease;
+    z-index: 40; pointer-events: none; white-space: nowrap;
+  }
+  #weaponToast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  .nameTag {
+    position: fixed; transform: translate(-50%, -100%);
+    background: rgba(10,14,20,.68); border: 1px solid rgba(255,255,255,.14); color: #e8ecf2;
+    font-size: 12px; font-weight: 700; letter-spacing: .03em; padding: 2px 9px; border-radius: 10px;
+    white-space: nowrap; pointer-events: none; z-index: 7; display: none;
+  }
+
   /* armory */
   #armoryOverlay .panel { max-height: 82vh; overflow-y: auto; }
   .weaponCard { padding: 12px; border-radius: 9px; background: #10151f; border: 1px solid rgba(255,255,255,.08); margin-bottom: 9px; }
@@ -143,12 +235,73 @@
   <div id="timeBadge"></div>
   <div class="bar"><i id="hpFill" style="width:100%"></i></div>
   <div class="bar"><i id="stFill" style="width:100%"></i></div>
+  <div class="hudBadges">
+    <div id="resourceBadge">🪵 Wood: 0</div>
+    <div id="scrapBadge">⚙️ Scrap: 0</div>
+    <div id="colonyBadge">🏗️ Colony Strength: 0</div>
+    <div id="readinessBadge">🧭 Readiness: 0%</div>
+    <div id="weaponBadge">🗡️ Weapon: Branch</div>
+    <div id="enemyHpBox">SKITTERLING<div class="enemyBarTrack"><div id="enemyHpFill" style="width:100%"></div></div></div>
+  </div>
 </div>
 
 <div id="prompt"></div>
 <div id="hurt"></div>
 <div id="ashketh"></div>
 <div id="subtitle"></div>
+<div id="weaponToast"></div>
+
+<div class="nameTag" id="tagReyes">Reyes</div>
+<div class="nameTag" id="tagOsei">Dr. Osei</div>
+<div class="nameTag" id="tagKade">Kade</div>
+
+<div id="dialogBox">
+  <div class="who" id="dialogWho">WANDERING NPC</div>
+  <div class="line" id="dialogLine">...</div>
+  <div class="hint" id="dialogHint">Tap Interact again to continue</div>
+  <div id="dialogChoices"></div>
+</div>
+
+<div id="buildBox">
+  <div class="who">COLONY BEACON — BUILD</div>
+  <div id="buildOptionsList"></div>
+  <button id="buildCloseBtn">Close</button>
+</div>
+
+<div id="readinessPanel">
+  <h3>Readiness</h3>
+  <div class="sub">A mix of combat, exploration, and colony strength — no single stat gates what comes next.</div>
+  <div class="readinessRow">
+    <div class="label"><span>⚔️ Combat</span><span id="rCombatPct">0%</span></div>
+    <div class="track"><div class="fill" id="rCombatFill" style="width:0%"></div></div>
+  </div>
+  <div class="readinessRow">
+    <div class="label"><span>🧭 Exploration</span><span id="rExploPct">0%</span></div>
+    <div class="track"><div class="fill" id="rExploFill" style="width:0%"></div></div>
+  </div>
+  <div class="readinessRow">
+    <div class="label"><span>🏗️ Colony</span><span id="rColonyPct">0%</span></div>
+    <div class="track"><div class="fill" id="rColonyFill" style="width:0%"></div></div>
+  </div>
+  <button id="readinessCloseBtn">Close</button>
+</div>
+
+<div id="visionOverlay"><p id="visionText"></p></div>
+
+<div id="encounterBox">
+  <div class="who">SKIRMISH AT THE RIDGE</div>
+  <div class="line">A rival outpost — and they're being torn into by the same wildlife you've been fighting off. Reyes' voice crackles in your ear: "Commander, call it. We don't have long."</div>
+  <div id="encounterChoices">
+    <button id="btnFightRivals">Fight past them — they're competition, not allies.</button>
+    <button id="btnTruceRivals" class="truceOpt">Extend a truce — help them, and maybe gain hands for the colony.</button>
+  </div>
+</div>
+
+<div id="gameOverOverlay">
+  <h2>You Were Overwhelmed</h2>
+  <p>The wildlife here doesn't forgive carelessness. Get back up and try again.</p>
+  <button id="btnRespawn">Respawn</button>
+</div>
 
 <div id="topRight">
   <div class="btn" id="btnMap">Map</div>
@@ -312,6 +465,7 @@ Engine.state = {
   isDead: false,
   attackCooldown: 0,
   kills: 0,
+  flags: {},              // story decision flags (rivalPath, reyesPath, oseiChoice, visionSeen...)
   started: false,
   paused: false,          // set true while a full-screen panel is open
   settingsOpen: false,
@@ -378,6 +532,10 @@ Engine.audio = (() => {
     jump:  () => tone(320, 0.14, 'sine', 0.1, 480),
     land:  () => { tone(140, 0.12, 'sine', 0.09, 80); noise(0.08, 0.08, 500); },
     beacon:() => [523, 784].forEach((f, i) => setTimeout(() => tone(f, 0.3, 'sine', 0.1), i * 100)),
+    build: () => [523, 659, 784].forEach((f, i) => setTimeout(() => tone(f, 0.25, 'triangle', 0.09), i * 80)),
+    gunshot:  () => { noise(0.06, 0.16, 2600); tone(220, 0.05, 'square', 0.08, 90); },
+    rocket:   () => { noise(0.3, 0.14, 500); tone(90, 0.4, 'sawtooth', 0.1, 50); },
+    explosion:() => { noise(0.5, 0.22, 350); tone(70, 0.6, 'sawtooth', 0.16, 35); },
   };
   // Per-world ambient bed. mood = { base:Hz, warmth:0..1 }; drone differs A vs B.
   function startAmbient(mood) {
@@ -422,7 +580,11 @@ Engine.rig = (() => {
     const leftLeg = makeLimbPivot(-0.16, 0.78, 0, 0.78, 0.11, legColor);
     const rightLeg = makeLimbPivot(0.16, 0.78, 0, 0.78, 0.11, legColor);
     group.add(leftArm, rightArm, leftLeg, rightLeg);
-    return { group, torso, head, leftArm, rightArm, leftLeg, rightLeg, weaponSlot: rightArm };
+    // dedicated hand slot (ported): held-weapon models + recoil offset attach here
+    const weaponSlot = new THREE.Group();
+    weaponSlot.position.set(0, -0.7, 0);
+    rightArm.add(weaponSlot);
+    return { group, torso, head, leftArm, rightArm, leftLeg, rightLeg, weaponSlot };
   }
   // Reads the shared character:config (written by Kessa's Reach character creation).
   async function applyCharacterConfig(parts) {
@@ -506,14 +668,34 @@ Engine.player = (() => {
   let isGrounded = true, velocityY = 0, airborneOffset = 0;
   let walkPhase = 0, bobOffset = 0, attackSwingTimer = 0, landSquashTimer = 0, squashBase = 1, lastFootstep = 0;
   let shakeTime = 0, shakeMag = 0;
+  let deathAnimTimer = 0;
+  // lightweight cutscene camera (rival encounter, summon)
+  let cutsceneTimer = 0, cutsceneDuration = 0, cutsceneTarget = null;
 
   function attach(playerMesh, activeWorld) {
     mesh = playerMesh; world = activeWorld;
     isGrounded = true; velocityY = 0; airborneOffset = 0; landSquashTimer = 0;
   }
 
+  function startCutscene(targetPos, duration) {
+    cutsceneTarget = targetPos.clone();
+    cutsceneTimer = duration; cutsceneDuration = duration;
+  }
+
   function update(dt) {
     const s = Engine.state, io = Engine.input;
+    if (cutsceneTimer > 0) return;              // camera owns the frame
+    if (s.isDead) {                             // ported death fall animation
+      if (deathAnimTimer > 0) {
+        deathAnimTimer -= dt;
+        const t = 1 - Math.max(0, deathAnimTimer / 0.9);
+        mesh.rotation.x = t * (Math.PI / 2.1);
+        const gy = world && world.heightAt ? world.heightAt(mesh.position.x, mesh.position.z) : 0;
+        mesh.position.y = gy - t * 0.3;
+      }
+      return;
+    }
+    mesh.rotation.x = 0;
     // look
     s.camYaw   -= io.look.dx * 0.0032;
     s.camPitch = Math.max(-1.3, Math.min(1.3, s.camPitch - io.look.dy * 0.0032));
@@ -550,8 +732,8 @@ Engine.player = (() => {
       mesh.position.x = Math.max(-world.bound, Math.min(world.bound, mesh.position.x));
       mesh.position.z = Math.max(-world.bound, Math.min(world.bound, mesh.position.z));
     }
-    // jump + gravity
-    if (io.jumpPressed && isGrounded && !s.isDead) {
+    // jump + gravity (blocked while world UI like dialogue/build menu is open)
+    if (io.jumpPressed && isGrounded && !s.isDead && !(world && world.uiBlocked && world.uiBlocked())) {
       velocityY = JUMP_FORCE; isGrounded = false; Engine.audio.sfx.jump();
     }
     if (!isGrounded || airborneOffset > 0) {
@@ -572,9 +754,12 @@ Engine.player = (() => {
     // ground follow (world supplies terrain height) + walk bob + jump arc
     const gy = world && world.heightAt ? world.heightAt(mesh.position.x, mesh.position.z) : 0;
     mesh.position.y = gy + bobOffset + airborneOffset;
-    // attack
+    // attack — full weapon dispatch lives in Engine.combat (melee/ranged/explosive)
     if (s.attackCooldown > 0) s.attackCooldown -= dt;
-    if (io.attackPressed && s.attackCooldown <= 0) performAttack();
+    if (io.attackPressed && s.attackCooldown <= 0 && !(world && world.uiBlocked && world.uiBlocked())) {
+      attackSwingTimer = 0.28;
+      Engine.combat.performAttack();
+    }
     // interact -> hand off to world
     if (io.interactPressed && world && world.onInteract) world.onInteract();
   }
@@ -604,9 +789,17 @@ Engine.player = (() => {
       const t = performance.now() / 1000, interval = sprinting ? 0.28 : 0.42;
       if (t - lastFootstep > interval) { lastFootstep = t; Engine.audio.noise(0.06, 0.05, 300); }
     } else {
-      walkPhase += dt * 2;
-      const idle = Math.sin(walkPhase) * 0.03;
-      parts.leftArm.rotation.x = idle; parts.rightArm.rotation.x = -idle; parts.rightArm.rotation.z = 0;
+      const talking = world && world.talking && world.talking();
+      walkPhase += dt * (talking ? 3.2 : 2);
+      if (talking) {
+        const gesture = Math.sin(walkPhase) * 0.22;
+        parts.rightArm.rotation.x = -0.4 + gesture;
+        parts.rightArm.rotation.z = Math.sin(walkPhase * 0.6) * 0.15;
+        parts.leftArm.rotation.x = 0.05 * Math.sin(walkPhase * 0.8);
+      } else {
+        const idle = Math.sin(walkPhase) * 0.03;
+        parts.leftArm.rotation.x = idle; parts.rightArm.rotation.x = -idle; parts.rightArm.rotation.z = 0;
+      }
       parts.leftLeg.rotation.x = 0; parts.rightLeg.rotation.x = 0;
       bobOffset = 0;
     }
@@ -623,31 +816,20 @@ Engine.player = (() => {
     }
   }
 
-  function performAttack() {
-    const s = Engine.state; s.attackCooldown = ATTACK.cooldown;
-    attackSwingTimer = 0.28;
-    Engine.audio.sfx.swing();
-    if (!world || !world.getTargets) return;
-    const fwd = new THREE.Vector3(Math.sin(s.yaw), 0, Math.cos(s.yaw));
-    for (const t of world.getTargets()) {
-      if (t.dead) continue;
-      const to = new THREE.Vector3().subVectors(t.group.position, mesh.position);
-      const dist = to.length(); if (dist > ATTACK.range) continue;
-      to.y = 0; to.normalize();
-      if (fwd.dot(to) < ATTACK.arc) continue;
-      const dmg = ATTACK.damage * (DIFFICULTY_MULT[s.difficulty] || 1);
-      t.hp -= dmg; Engine.audio.sfx.hit();
-      if (t.hp <= 0) {
-        t.dead = true; t.group.visible = false; Engine.audio.sfx.death();
-        Engine.state.kills = (Engine.state.kills || 0) + 1;
-        if (Engine.armory) Engine.armory.checkUnlocks();
-        if (world.onKill) world.onKill(t);
-      }
-    }
-  }
-
   function updateCamera(dt) {
     const s = Engine.state;
+    // lightweight cutscene camera (ported): swings around the target, then hands back
+    if (cutsceneTimer > 0) {
+      cutsceneTimer -= dt;
+      const t = 1 - Math.max(0, cutsceneTimer / cutsceneDuration);
+      const swing = (0.3 + t * 0.5);
+      const cx = cutsceneTarget.x + Math.sin(t * 1.2) * 6 * swing;
+      const cz = cutsceneTarget.z + Math.cos(t * 1.2) * 6 * swing;
+      const cy = cutsceneTarget.y + 3.5;
+      camera.position.lerp(new THREE.Vector3(cx, cy, cz), Math.min(1, dt * 3));
+      camera.lookAt(cutsceneTarget.x, cutsceneTarget.y, cutsceneTarget.z);
+      return;
+    }
     const off = new THREE.Vector3(
       Math.sin(s.camYaw) * Math.cos(s.camPitch) * CAM_DIST,
       Math.max(1.4, 2.6 + Math.sin(s.camPitch) * CAM_DIST),
@@ -675,9 +857,14 @@ Engine.player = (() => {
   function hurt(amount) {
     const s = Engine.state; if (s.isDead) return;
     s.hp = Math.max(0, s.hp - amount * (DIFFICULTY_MULT[s.difficulty] || 1));
-    Engine.audio.sfx.hurt(); triggerHurtFlash(); shake(0.6, 0.35);
-    if (s.hp <= 0) { s.isDead = true; if (world && world.onDeath) world.onDeath(); }
+    Engine.audio.sfx.hurt(); triggerHurtFlash(); shake(0.22, 0.25);
+    if (s.hp <= 0) {
+      s.isDead = true; deathAnimTimer = 0.9;
+      if (world && world.onDeath) world.onDeath();
+    }
   }
+
+  function revive() { deathAnimTimer = 0; if (mesh) mesh.rotation.x = 0; }
 
   function snapCamera() {
     const s = Engine.state;
@@ -690,7 +877,8 @@ Engine.player = (() => {
     camera.position.copy(target.clone().add(off)); camera.lookAt(target);
   }
 
-  return { attach, update, updateCamera, snapCamera, performAttack, hurt, shake, CAM_DIST, ATTACK };
+  return { attach, update, updateCamera, snapCamera, startCutscene, hurt, revive, shake, CAM_DIST, ATTACK,
+    get inCutscene() { return cutsceneTimer > 0; } };
 })();
 
 function triggerHurtFlash() {
@@ -698,6 +886,216 @@ function triggerHurtFlash() {
   el.style.boxShadow = 'inset 0 0 140px 40px rgba(210,40,40,0.5)';
   setTimeout(() => { el.style.boxShadow = 'inset 0 0 140px 40px rgba(210,40,40,0)'; }, 120);
 }
+
+/* ---- top-center toast (weapon unlocks, ship ready, ...) ---- */
+Engine.toast = (text) => {
+  const el = document.getElementById('weaponToast');
+  el.textContent = text; el.classList.add('show');
+  Engine.audio.sfx.build();
+  clearTimeout(Engine.toast._t);
+  Engine.toast._t = setTimeout(() => el.classList.remove('show'), 3200);
+};
+
+/* ==========================================================================
+   Engine.combat — full weapon dispatch, ported from world_prototype:
+   melee cone, hitscan gun (tracer + muzzle flash + recoil), rocket with
+   splash. Worlds supply richer targets via getCombatTargets() returning
+   [{ kind, ref, position }]; simple worlds fall back to getTargets().
+   Damage dealt is NOT difficulty-scaled (matches the originals — only
+   damage taken scales). Kills feed Engine.state.kills + armory unlocks.
+   ========================================================================== */
+Engine.combat = (() => {
+  const PLAYER_ATTACK_ARC = Math.cos(55 * Math.PI / 180); // ~110 degree cone
+  const GUN_ARC = Math.cos(8 * Math.PI / 180);            // tight cone
+  const tracers = [], rockets = [];
+  let gunRecoilTimer = 0;
+
+  const world = () => WorldManager.current;
+
+  function getLiveTargets() {
+    const w = world(); if (!w) return [];
+    if (w.getCombatTargets) return w.getCombatTargets();
+    return (w.getTargets ? w.getTargets() : []).filter((t) => !t.dead)
+      .map((t) => ({ kind: 'simple', ref: t, position: t.group.position }));
+  }
+
+  function damageTarget(t, dmg, dir, knockbackAmt) {
+    t.ref.hp -= dmg;
+    if (t.ref.hitFlashTimer != null) t.ref.hitFlashTimer = 0.15;
+    t.position.x += dir.x * knockbackAmt;
+    t.position.z += dir.z * knockbackAmt;
+    if (t.ref.hp <= 0 && !t.ref.dead) {
+      t.ref.dead = true;
+      if (t.kind === 'enemy') { t.ref.state = 'dead'; t.ref.respawnTimer = 16; }
+      if (t.kind === 'simple') t.ref.group.visible = false;
+      Engine.audio.sfx.death();
+      Engine.state.kills = (Engine.state.kills || 0) + 1;
+      if (Engine.armory) Engine.armory.checkUnlocks();
+      const w = world(); if (w && w.onKill) w.onKill(t.ref);
+      return true;
+    }
+    Engine.audio.sfx.hit();
+    return false;
+  }
+
+  function getMuzzleWorldPosition() {
+    const w = world(); const pos = new THREE.Vector3();
+    const slot = w.playerParts && w.playerParts.weaponSlot;
+    if (slot && slot.userData.muzzle) slot.userData.muzzle.getWorldPosition(pos);
+    else { pos.copy(w.player.position); pos.y += 1.2; }
+    return pos;
+  }
+
+  function performAttack() {
+    const s = Engine.state, w = world();
+    if (!w || s.isDead) return;
+    const def = Engine.armory.DEFS.find((d) => d.id === Engine.armory.st.equipped) || Engine.armory.DEFS[0];
+    s.attackCooldown = def.cooldown;
+    if (def.type === 'melee') {
+      Engine.audio.sfx.swing();
+      const forwardX = Math.sin(s.yaw), forwardZ = Math.cos(s.yaw);
+      const p = w.player.position;
+      let landedHit = false;
+      getLiveTargets().forEach((t) => {
+        const dx = t.position.x - p.x, dz = t.position.z - p.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist > def.range) return;
+        const dirLen = dist || 0.001;
+        const dot = (dx / dirLen) * forwardX + (dz / dirLen) * forwardZ;
+        if (dot < PLAYER_ATTACK_ARC) return;
+        damageTarget(t, def.damage, { x: dx / dirLen, z: dz / dirLen }, 1.1);
+        landedHit = true;
+      });
+      if (landedHit) Engine.player.shake(0.12, 0.15);
+    } else if (def.type === 'ranged') {
+      fireGun(def);
+    } else if (def.type === 'explosive') {
+      fireRocket(def);
+    }
+  }
+
+  function fireGun(def) {
+    const s = Engine.state, w = world();
+    Engine.audio.sfx.gunshot();
+    gunRecoilTimer = 0.14;
+    const forwardX = Math.sin(s.yaw), forwardZ = Math.cos(s.yaw);
+    const p = w.player.position;
+    let closest = null, closestDist = Infinity;
+    getLiveTargets().forEach((t) => {
+      const dx = t.position.x - p.x, dz = t.position.z - p.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > def.range) return;
+      const dirLen = dist || 0.001;
+      const dot = (dx / dirLen) * forwardX + (dz / dirLen) * forwardZ;
+      if (dot < GUN_ARC) return;
+      if (dist < closestDist) { closestDist = dist; closest = t; }
+    });
+    const muzzlePos = getMuzzleWorldPosition();
+    let endPoint;
+    if (closest) {
+      const dx = closest.position.x - p.x, dz = closest.position.z - p.z;
+      const dirLen = closestDist || 0.001;
+      damageTarget(closest, def.damage, { x: dx / dirLen, z: dz / dirLen }, 0.3);
+      endPoint = new THREE.Vector3(closest.position.x, closest.position.y + 0.6, closest.position.z);
+      Engine.player.shake(0.08, 0.1);
+    } else {
+      endPoint = muzzlePos.clone().add(new THREE.Vector3(forwardX, 0, forwardZ).multiplyScalar(def.range));
+    }
+    spawnTracer(muzzlePos, endPoint);
+    if (w.spawnDust) w.spawnDust(muzzlePos.x, muzzlePos.y, muzzlePos.z, 5, 0xfff2b0, 0.8);
+  }
+
+  function spawnTracer(start, end) {
+    const geo = new THREE.BufferGeometry().setFromPoints([start, end]);
+    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0.9 }));
+    world().scene.add(line);
+    tracers.push({ line, scene: world().scene, age: 0, life: 0.09 });
+  }
+
+  function fireRocket(def) {
+    const s = Engine.state, w = world();
+    Engine.audio.sfx.rocket();
+    gunRecoilTimer = 0.3;
+    Engine.player.shake(0.18, 0.22);
+    const forwardX = Math.sin(s.yaw), forwardZ = Math.cos(s.yaw);
+    const muzzlePos = getMuzzleWorldPosition();
+    const mesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.07, 0.09, 0.36, 8),
+      new THREE.MeshStandardMaterial({ color: 0x3a3a3a, emissive: 0xff6a2a, emissiveIntensity: 0.35 })
+    );
+    mesh.position.copy(muzzlePos);
+    mesh.rotation.x = Math.PI / 2;
+    mesh.rotation.z = -s.yaw;
+    w.scene.add(mesh);
+    rockets.push({ mesh, scene: w.scene, vx: forwardX * 13, vy: 1.2, vz: forwardZ * 13, traveled: 0, def });
+  }
+
+  function explodeRocket(pos, def) {
+    const w = world();
+    Engine.audio.sfx.explosion();
+    Engine.player.shake(0.4, 0.4);
+    if (w.spawnDust) w.spawnDust(pos.x, pos.y, pos.z, 30, 0xffa050, 0.9);
+    getLiveTargets().forEach((t) => {
+      const dx = t.position.x - pos.x, dz = t.position.z - pos.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist < def.splashRadius) {
+        const falloff = 1 - dist / def.splashRadius;
+        const dirLen = dist || 0.001;
+        damageTarget(t, def.damage * falloff, { x: dx / dirLen, z: dz / dirLen }, 2.2 * falloff);
+      }
+    });
+  }
+
+  function update(dt) {
+    // tracers fade fast
+    for (let i = tracers.length - 1; i >= 0; i--) {
+      const t = tracers[i];
+      t.age += dt;
+      t.line.material.opacity = 0.9 * (1 - t.age / t.life);
+      if (t.age >= t.life) { t.scene.remove(t.line); tracers.splice(i, 1); }
+    }
+    // rockets: gravity arc, range limit, ground + proximity detonation
+    for (let i = rockets.length - 1; i >= 0; i--) {
+      const r = rockets[i];
+      r.vy -= 6 * dt;
+      r.mesh.position.x += r.vx * dt;
+      r.mesh.position.y += r.vy * dt;
+      r.mesh.position.z += r.vz * dt;
+      r.traveled += Math.hypot(r.vx, r.vz) * dt;
+      let exploded = r.traveled > r.def.range;
+      const w = world();
+      if (!exploded && w && w.heightAt) {
+        if (r.mesh.position.y <= w.heightAt(r.mesh.position.x, r.mesh.position.z) + 0.15) exploded = true;
+      }
+      if (!exploded) {
+        for (const t of getLiveTargets()) {
+          const dx = t.position.x - r.mesh.position.x;
+          const dz = t.position.z - r.mesh.position.z;
+          const dy = (t.position.y + 0.6) - r.mesh.position.y;
+          if (Math.sqrt(dx * dx + dy * dy + dz * dz) < 1.0) { exploded = true; break; }
+        }
+      }
+      if (exploded) {
+        explodeRocket(r.mesh.position.clone(), r.def);
+        r.scene.remove(r.mesh);
+        rockets.splice(i, 1);
+      }
+    }
+    // gun recoil kick on the weapon slot
+    const w = world();
+    const slot = w && w.playerParts && w.playerParts.weaponSlot;
+    if (slot) {
+      if (gunRecoilTimer > 0) {
+        gunRecoilTimer -= dt;
+        slot.position.z = 0.1 * Math.max(0, gunRecoilTimer / 0.14);
+      } else {
+        slot.position.z = 0;
+      }
+    }
+  }
+
+  return { performAttack, damageTarget, getLiveTargets, update };
+})();
 
 /* ==========================================================================
    Engine.settings — shared accessibility (was duplicated, same storage key)
@@ -880,9 +1278,24 @@ const WorldA = (() => {
   scene.fog = new THREE.Fog(0x8a8068, 14, 68);
   scene.background = null;          // the shader sky dome is the background
   let player, playerParts;
-  const enemies = [];               // PORT (Phase 2): real wildlife + rivals replace the dummy
+  const enemies = [];               // skitterling wildlife
   const mood = { tint: new THREE.Color(1.02, 0.99, 0.9), exposure: 1.02, audio: { base: 68, warmth: 0.85 } };
-  const wst = { timeOfDay: 0.3 };   // world state (colony/resources join in Phase 2)
+  const wst = {                     // world-specific state (colony, resources, UI)
+    timeOfDay: 0.3,
+    wood: 0, scrap: 0,
+    colonyStrength: 0,
+    dialogueOpen: false,
+    buildMenuOpen: false,
+    encounterOpen: false,
+    shipUnlocked: false,
+    summoned: false,
+  };
+  // gameplay entities (built in build())
+  let reyesNpc = null, oseiNpc = null, beacon = null, monolith = null;
+  const rivalNpcs = {};
+  const resourceNodes = [];
+  let nearNpcId = null, nearResource = null, nearBeacon = false;
+  let kadeContributionTimer = 25, unlockCheckTimer = 0;
 
   const obstacles = [];             // movement collision (Engine.player reads this)
   const swayables = [], glowFloraPulse = [];
@@ -1004,7 +1417,18 @@ const WorldA = (() => {
       shader.fragmentShader = shader.fragmentShader.replace('#include <common>',
         '#include <common>\nuniform vec3 rimColor;\nuniform float rimIntensity;');
       shader.fragmentShader = shader.fragmentShader.replace('#include <dithering_fragment>',
-        '#include <dithering_fragment>\n{\nvec3 viewDirRim = normalize(vViewPosition);\nfloat rim = 1.0 - max(dot(normalize(vNormal), viewDirRim), 0.0);\nrim = pow(rim, 2.5) * rimIntensity;\ngl_FragColor.rgb += rimColor * rim;\n}');
+        ['#include <dithering_fragment>', '{',
+          // flat-shaded materials have no vNormal varying in r128 — derive one
+          '#ifdef FLAT_SHADED',
+          'vec3 rimNormal = normalize( cross( dFdx( -vViewPosition ), dFdy( -vViewPosition ) ) );',
+          '#else',
+          'vec3 rimNormal = normalize( vNormal );',
+          '#endif',
+          'vec3 viewDirRim = normalize(vViewPosition);',
+          'float rim = 1.0 - max(dot(rimNormal, viewDirRim), 0.0);',
+          'rim = pow(rim, 2.5) * rimIntensity;',
+          'gl_FragColor.rgb += rimColor * rim;',
+        '}'].join('\n'));
     };
     material.needsUpdate = true;
   }
@@ -1261,6 +1685,643 @@ const WorldA = (() => {
     else badge.textContent = '🌙 Night';
   }
 
+  /* ================= colony: beacon, build slots, structures ================= */
+  const buildSlots = [
+    { x: 5, z: 4, filled: false }, { x: 1, z: 5, filled: false },
+    { x: 6, z: 1, filled: false }, { x: -1, z: 3, filled: false },
+    { x: 5, z: -1, filled: false }, { x: 2, z: 6, filled: false },
+  ];
+  const structureDefs = [
+    { id: 'shelter', name: 'Shelter', cost: { wood: 5, scrap: 0 }, strength: 2, maxCount: 3, color: 0x9c7a4a, size: [1.1, 1.1, 1.1] },
+    { id: 'storage', name: 'Storage Depot', cost: { wood: 8, scrap: 2 }, strength: 3, maxCount: 3, color: 0x6f8ca0, size: [1.3, 0.9, 1.3] },
+    { id: 'workshop', name: 'Workshop', cost: { wood: 14, scrap: 6 }, strength: 5, maxCount: 2, color: 0xaa7744, size: [1.5, 1.4, 1.5] },
+  ];
+  const builtCounts = { shelter: 0, storage: 0, workshop: 0 };
+
+  function updateHudBadges() {
+    document.getElementById('resourceBadge').textContent = `🪵 Wood: ${wst.wood}`;
+    document.getElementById('scrapBadge').textContent = `⚙️ Scrap: ${wst.scrap}`;
+    document.getElementById('colonyBadge').textContent = `🏗️ Colony Strength: ${wst.colonyStrength}`;
+  }
+
+  function createStructureMesh(def, slot) {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(...def.size), new THREE.MeshStandardMaterial({ color: def.color }));
+    mesh.position.set(slot.x, heightAt(slot.x, slot.z) + def.size[1] / 2, slot.z);
+    mesh.castShadow = true;
+    mesh.userData.radius = Math.max(def.size[0], def.size[2]) / 2 + 0.3;
+    scene.add(mesh); obstacles.push(mesh);
+    return mesh;
+  }
+  function buildStructure(defId) {
+    const def = structureDefs.find((d) => d.id === defId);
+    if (!def) return;
+    if (wst.wood < def.cost.wood || wst.scrap < def.cost.scrap) return;
+    if (builtCounts[defId] >= def.maxCount) return;
+    const slot = buildSlots.find((s) => !s.filled);
+    if (!slot) return;
+    wst.wood -= def.cost.wood;
+    wst.scrap -= def.cost.scrap;
+    builtCounts[defId] += 1;
+    slot.filled = true;
+    slot.builtType = defId;
+    createStructureMesh(def, slot);
+    Engine.audio.sfx.build();
+    wst.colonyStrength += def.strength;
+    updateHudBadges();
+    renderBuildMenu();
+  }
+  function renderBuildMenu() {
+    const list = document.getElementById('buildOptionsList');
+    list.innerHTML = '';
+    structureDefs.forEach((def) => {
+      const row = document.createElement('div');
+      row.className = 'buildOption';
+      const capped = builtCounts[def.id] >= def.maxCount;
+      const afford = wst.wood >= def.cost.wood && wst.scrap >= def.cost.scrap;
+      const costText = def.cost.scrap > 0 ? `🪵 ${def.cost.wood} · ⚙️ ${def.cost.scrap}` : `🪵 ${def.cost.wood}`;
+      row.innerHTML = `
+        <div class="info">
+          <div class="name">${def.name} (${builtCounts[def.id]}/${def.maxCount})</div>
+          <div class="sub">Cost: ${costText} · +${def.strength} Colony Strength</div>
+        </div>
+        <button ${(!afford || capped) ? 'disabled' : ''}>${capped ? 'Max' : 'Build'}</button>`;
+      row.querySelector('button').onclick = () => buildStructure(def.id);
+      list.appendChild(row);
+    });
+  }
+  function openBuildMenu() {
+    wst.buildMenuOpen = true;
+    document.getElementById('buildBox').style.display = 'block';
+    renderBuildMenu();
+    Engine.audio.sfx.blip();
+  }
+  function closeBuildMenu() {
+    wst.buildMenuOpen = false;
+    document.getElementById('buildBox').style.display = 'none';
+  }
+
+  /* ================= companions ================= */
+  function makeCompanion(bodyColor, x, z) {
+    const parts = Engine.rig.makeHumanoidParts(bodyColor);
+    const group = parts.group;
+    group.position.set(x, heightAt(x, z), z);
+    group.userData.parts = parts;
+    group.userData.idlePhase = Math.random() * Math.PI * 2;
+    scene.add(group);
+    return group;
+  }
+  function animateCompanionsIdle(dt) {
+    const ids = { reyes: reyesNpc, osei: oseiNpc };
+    Object.keys(ids).forEach((id) => {
+      const npc = ids[id]; if (!npc) return;
+      const talking = wst.dialogueOpen && nearNpcId === id;
+      npc.userData.idlePhase += dt * (talking ? 3 : 1.6);
+      const amount = talking ? 0.18 : 0.04;
+      const idle = Math.sin(npc.userData.idlePhase) * amount;
+      const parts = npc.userData.parts;
+      parts.leftArm.rotation.x = idle;
+      parts.rightArm.rotation.x = -idle;
+      parts.head.rotation.y = Math.sin(npc.userData.idlePhase * 0.5) * (talking ? 0.25 : 0.15);
+    });
+  }
+
+  /* ================= hostile wildlife: skitterlings ================= */
+  const ENEMY_AGGRO_RADIUS = 9, ENEMY_ATTACK_RANGE = 1.6, ENEMY_LEASH_RADIUS = 11;
+  function makeEnemy(x, z) {
+    const group = new THREE.Group();
+    const bodyMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55, 0),
+      new THREE.MeshStandardMaterial({ color: 0x4a6b3f, flatShading: true, emissive: 0x000000 }));
+    bodyMesh.position.y = 0.55;
+    bodyMesh.castShadow = true;
+    addRimLight(bodyMesh.material, 0xc25a3a, 0.35);
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8),
+      new THREE.MeshStandardMaterial({ color: 0xff3b30, emissive: 0xff3b30, emissiveIntensity: 0.9 }));
+    eye.position.set(0, 0.65, 0.45);
+    group.add(bodyMesh, eye);
+    const legMat = new THREE.MeshStandardMaterial({ color: 0x2f4a2a, flatShading: true });
+    for (let i = 0; i < 4; i++) {
+      const angle = (i / 4) * Math.PI * 2 + Math.PI / 4;
+      const leg = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.4, 5), legMat);
+      leg.position.set(Math.cos(angle) * 0.35, 0.2, Math.sin(angle) * 0.35);
+      leg.rotation.x = Math.PI;
+      leg.rotation.z = Math.cos(angle) * 0.5;
+      leg.rotation.y = angle;
+      group.add(leg);
+    }
+    group.position.set(x, heightAt(x, z), z);
+    scene.add(group);
+    return {
+      group, bodyMesh, eye,
+      hp: 40, maxHp: 40,
+      spawn: { x, z },
+      state: 'idle',
+      wanderTarget: null, wanderTimer: 0,
+      attackCooldown: 0, hitFlashTimer: 0,
+      dead: false,
+      bobPhase: Math.random() * Math.PI * 2,
+      respawnTimer: 0,
+    };
+  }
+  function moveEnemyToward(en, tx, tz, dt, speed) {
+    const dx = tx - en.group.position.x;
+    const dz = tz - en.group.position.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist < 0.05) return;
+    en.group.position.x += (dx / dist) * speed * dt;
+    en.group.position.z += (dz / dist) * speed * dt;
+    en.group.rotation.y = Math.atan2(dx, dz);
+  }
+  function updateEnemies(dt) {
+    let closestAlive = null, closestDist = Infinity;
+    enemies.forEach((en) => {
+      if (en.dead) {
+        en.group.scale.multiplyScalar(Math.max(0, 1 - dt * 4));
+        if (en.group.scale.x < 0.02 && en.group.visible) en.group.visible = false;
+        en.respawnTimer -= dt;
+        if (en.respawnTimer <= 0) {
+          en.hp = en.maxHp; en.dead = false; en.state = 'idle';
+          en.group.visible = true; en.group.scale.set(1, 1, 1);
+          en.group.position.set(en.spawn.x, heightAt(en.spawn.x, en.spawn.z), en.spawn.z);
+        }
+        return;
+      }
+      if (en.hitFlashTimer > 0) { en.hitFlashTimer -= dt; en.bodyMesh.material.emissive.setHex(0xaa2222); }
+      else en.bodyMesh.material.emissive.setHex(0x000000);
+      en.bobPhase += dt * (en.state === 'chase' ? 9 : 2.4);
+      const pulse = 1 + Math.sin(en.bobPhase) * (en.state === 'chase' ? 0.05 : 0.03);
+      en.bodyMesh.scale.set(pulse, pulse, pulse);
+      en.group.position.y = heightAt(en.group.position.x, en.group.position.z) + (en.state === 'chase' ? Math.abs(Math.sin(en.bobPhase)) * 0.12 : 0);
+      const dxP = player.position.x - en.group.position.x;
+      const dzP = player.position.z - en.group.position.z;
+      const distP = Math.hypot(dxP, dzP);
+      const distFromSpawn = Math.hypot(en.group.position.x - en.spawn.x, en.group.position.z - en.spawn.z);
+      if (distP < closestDist) { closestDist = distP; closestAlive = en; }
+      if (distP < ENEMY_AGGRO_RADIUS && !Engine.state.isDead) en.state = 'chase';
+      else if (distFromSpawn < 0.6) en.state = 'idle';
+      if (en.state === 'chase') {
+        if (distFromSpawn > ENEMY_LEASH_RADIUS) {
+          moveEnemyToward(en, en.spawn.x, en.spawn.z, dt, 2.6);
+        } else if (distP > ENEMY_ATTACK_RANGE) {
+          moveEnemyToward(en, player.position.x, player.position.z, dt, 2.8);
+        } else {
+          en.group.rotation.y = Math.atan2(dxP, dzP);
+          if (en.attackCooldown <= 0 && !Engine.state.isDead) {
+            Engine.player.hurt(8);
+            en.attackCooldown = 1.1;
+          }
+        }
+      } else {
+        en.wanderTimer -= dt;
+        if (en.wanderTimer <= 0 || !en.wanderTarget) {
+          const angle = Math.random() * Math.PI * 2, r = Math.random() * 4;
+          en.wanderTarget = { x: en.spawn.x + Math.cos(angle) * r, z: en.spawn.z + Math.sin(angle) * r };
+          en.wanderTimer = 3 + Math.random() * 3;
+        }
+        moveEnemyToward(en, en.wanderTarget.x, en.wanderTarget.z, dt, 1.1);
+      }
+      if (en.attackCooldown > 0) en.attackCooldown -= dt;
+    });
+    const enemyHpBox = document.getElementById('enemyHpBox');
+    if (closestAlive && closestDist < 8 && !Engine.state.isDead) {
+      enemyHpBox.style.display = 'block';
+      document.getElementById('enemyHpFill').style.width = (closestAlive.hp / closestAlive.maxHp * 100) + '%';
+    } else {
+      enemyHpBox.style.display = 'none';
+    }
+  }
+
+  /* ================= rival faction ================= */
+  const RIVAL_ENCOUNTER = { x: -20, z: 14, radius: 10 };
+  const RIVAL_AGGRO_ATTACK_RANGE = 1.6;
+  function makeRivalHumanoid(x, z) {
+    const parts = Engine.rig.makeHumanoidParts(0x7a3535, { skin: 0x555a63 });
+    const group = parts.group;
+    group.position.set(x, heightAt(x, z), z);
+    scene.add(group);
+    return { group, parts, hp: 50, maxHp: 50, active: false, dead: false, attackCooldown: 0, idlePhase: Math.random() * Math.PI * 2 };
+  }
+  function triggerRivalEncounter() {
+    Engine.state.flags.rivalEncounterShown = true;
+    wst.encounterOpen = true;
+    const midX = (rivalNpcs.kade.group.position.x + rivalNpcs.scout.group.position.x) / 2;
+    const midZ = (rivalNpcs.kade.group.position.z + rivalNpcs.scout.group.position.z) / 2;
+    Engine.player.startCutscene(new THREE.Vector3(midX, heightAt(midX, midZ) + 1.3, midZ), 1.8);
+    setTimeout(() => { document.getElementById('encounterBox').style.display = 'block'; }, 1800);
+  }
+  function resolveRivalFight() {
+    document.getElementById('encounterBox').style.display = 'none';
+    wst.encounterOpen = false;
+    Engine.state.flags.rivalPath = 'hostile';
+    Object.values(rivalNpcs).forEach((r) => { r.active = true; });
+    Engine.choicelog.record('decision_rival', 'The Rival Faction', 'Fought past them — the Reach has no room for rivals.');
+  }
+  function resolveRivalTruce() {
+    document.getElementById('encounterBox').style.display = 'none';
+    wst.encounterOpen = false;
+    Engine.state.flags.rivalPath = 'truce';
+    wst.wood += 6; wst.scrap += 3; wst.colonyStrength += 4;
+    updateHudBadges();
+    Engine.audio.sfx.build();
+    Engine.choicelog.record('decision_rival', 'The Rival Faction', "Extended a truce — Kade's people joined the colony.");
+  }
+  function updateKadeContribution(dt) {
+    if (Engine.state.flags.rivalPath !== 'truce' || rivalNpcs.kade.dead) return;
+    kadeContributionTimer -= dt;
+    if (kadeContributionTimer <= 0) {
+      kadeContributionTimer = 25;
+      if (Math.random() < 0.6) wst.wood += 1; else wst.scrap += 1;
+      updateHudBadges();
+    }
+  }
+  function updateRivalNpcs(dt) {
+    Object.values(rivalNpcs).forEach((r) => {
+      if (r.dead) { r.group.scale.multiplyScalar(Math.max(0, 1 - dt * 4)); return; }
+      if (!r.active) {
+        r.idlePhase += dt * 1.4;
+        const idle = Math.sin(r.idlePhase) * 0.05;
+        r.parts.leftArm.rotation.x = idle;
+        r.parts.rightArm.rotation.x = -idle;
+        return;
+      }
+      if (Engine.state.flags.rivalPath !== 'hostile') return; // truce path: no combat
+      const dx = player.position.x - r.group.position.x;
+      const dz = player.position.z - r.group.position.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > RIVAL_AGGRO_ATTACK_RANGE) {
+        r.group.position.x += (dx / dist) * 2.4 * dt;
+        r.group.position.z += (dz / dist) * 2.4 * dt;
+        r.group.position.y = heightAt(r.group.position.x, r.group.position.z);
+        r.group.rotation.y = Math.atan2(dx, dz);
+      } else {
+        r.group.rotation.y = Math.atan2(dx, dz);
+        if (r.attackCooldown <= 0 && !Engine.state.isDead) {
+          Engine.player.hurt(10);
+          r.attackCooldown = 1.2;
+        }
+      }
+      if (r.attackCooldown > 0) r.attackCooldown -= dt;
+    });
+  }
+
+  /* ================= dialogue (trees ported verbatim) ================= */
+  const dialogueTrees = {
+    reyes: {
+      displayName: 'REYES · PILOT',
+      start: 'stage0',
+      nodes: {
+        stage0: { text: "You doing okay out here, Commander? Systems are holding... barely.", next: 'stage1' },
+        stage1: { text: "Actually — there's something about why we went down when we did. I probably owe you the truth on that.",
+          choices: [
+            { label: 'Press him — tell me now.', next: 'confess_now' },
+            { label: 'Let him have space.', next: 'confess_later' }
+          ]
+        },
+        confess_now: { text: 'Reyes exhales. "Fine. The nav computer flagged a course deviation right before we lost control — like something pulled us in. I didn\'t want to say it until I was sure." He seems rattled you didn\'t wait.', next: 'loop_confronted', setFlag: 'reyesPath:confronted' },
+        confess_later: { text: 'You let it sit. Reyes relaxes, quietly grateful. "...Thanks for that, Commander. I\'ll tell you the rest when I\'m ready."', next: 'loop_patient', setFlag: 'reyesPath:patient' },
+        loop_confronted: { text: '"Still not thrilled you pushed on that. But I get it — we needed to know." ',
+          dynamicEligible: true,
+          personality: "Reyes, the ship's pilot/mechanic. Blunt, loyal, dry gallows humor. Secretly terrified everyone will die out here but refuses to admit it out loud. Speaks in short, plain sentences — no flowery language. Still a little prickly that the Commander pushed him to confess about the crash immediately instead of waiting.",
+          variants: () => {
+            const lines = ['"Still not thrilled you pushed on that. But I get it — we needed to know."'];
+            if (wst.colonyStrength > 10) lines.push('"Place is actually starting to look like something. Didn\'t think we\'d get here."');
+            if (wst.shipUnlocked) lines.push('"She flies steady, Commander. I\'m proud of that wreck."');
+            if (Engine.state.kills > 10) lines.push('"You\'ve gotten good out there. Scary good, honestly."');
+            return lines;
+          }
+        },
+        loop_patient: { text: '"I\'ll tell you the rest soon. Promise. Means a lot you didn\'t push."',
+          dynamicEligible: true,
+          personality: "Reyes, the ship's pilot/mechanic. Blunt, loyal, dry gallows humor. Secretly terrified everyone will die out here but refuses to admit it out loud. Speaks in short, plain sentences — no flowery language. Quietly grateful the Commander gave him space about the crash instead of pushing.",
+          variants: () => {
+            const lines = ['"I\'ll tell you the rest soon. Promise. Means a lot you didn\'t push."'];
+            if (wst.colonyStrength > 10) lines.push('"Colony\'s holding together. That\'s on you as much as anyone."');
+            if (wst.shipUnlocked) lines.push('"Take her up again sometime. Feels good to see her fly."');
+            return lines;
+          }
+        }
+      }
+    },
+    osei: {
+      displayName: 'DR. OSEI · SCIENTIST',
+      start: 'stage0',
+      nodes: {
+        stage0: { text: "The flora out here doesn't match anything in the survey data. I want to get closer to those ruins to the east.", next: 'stage1' },
+        stage1: { text: "I keep picking up a faint resonance near the old structures. Could be geological. Could be something else entirely.", next: 'loop' },
+        loop: { text: 'Come back after you\'ve explored more — I might have something new to report.' },
+        discovery: { text: "Commander — I need to show you something. The debris patterns from the crash aren't random. Something guided us down here. I have the data to prove it.",
+          choices: [
+            { label: 'Tell the whole colony.', next: 'discovery_share' },
+            { label: 'Keep it between us.', next: 'discovery_suppress' }
+          ]
+        },
+        discovery_share: { text: 'Word spreads fast. A few colonists are shaken, but most seem steadied just knowing you\'re not hiding anything. Osei looks relieved. "Better they hear it from us than piece it together themselves."', next: 'loop_after', setFlag: 'oseiPath:shared' },
+        discovery_suppress: { text: 'You keep it contained to the crew. Osei nods, though something in her expression tightens. "Understood. But Commander... this kind of thing has a way of getting out anyway."', next: 'loop_after', setFlag: 'oseiPath:suppressed' },
+        loop_after: { text: 'Osei keeps studying her readings, quieter than before. "I\'ll let you know if anything changes."',
+          dynamicEligible: true,
+          personality: "Dr. Amara Osei, xenobiologist. Endlessly curious, pulled toward the ruins and the mystery even when it's risky. Speaks like a scientist thinking out loud — precise but excitable, sometimes trailing off mid-thought when a new idea strikes her. Currently studying anomalous readings near the ruins tied to the ancient presence Ashketh.",
+          variants: () => {
+            const lines = ['Osei keeps studying her readings, quieter than before. "I\'ll let you know if anything changes."'];
+            if (Engine.state.kills > 10) lines.push('"Whatever\'s out there, you\'re handling it better than the data says you should be able to."');
+            if (wst.colonyStrength > 15) lines.push('"The colony\'s stable enough now that I can actually focus on the ruins. Small mercies."');
+            return lines;
+          }
+        }
+      }
+    },
+    kade: {
+      displayName: 'KADE · RIVAL OUTFIT',
+      start: 'stage0',
+      nodes: {
+        stage0: { text: "Still can't believe you backed us instead of finishing us off. Most crews out here wouldn't have bothered.", next: 'stage1' },
+        stage1: { text: "My people can pull their weight — trade routes, salvage, extra hands when the wildlife gets bold. We owe you that much.", next: 'loop' },
+        loop: { text: 'We\'ll hold up our end, Commander. You won\'t regret the call.',
+          dynamicEligible: true,
+          personality: "Kade, leader of a small rival scavenger outfit the Commander chose to make peace with instead of fighting. Gruff but sincerely grateful — still a little surprised he was shown mercy, and works hard to prove his people are worth the trust. Speaks plainly, with quiet pride in his crew.",
+          variants: ['We\'ll hold up our end, Commander. You won\'t regret the call.', 'Sent a few of mine out scavenging again — should turn up something useful.', 'My people talk about you like you\'re the reason we\'re still standing out here. Might be right.']
+        }
+      }
+    }
+  };
+  const npcState = { reyes: { current: null }, osei: { current: null }, kade: { current: null } };
+
+  /* Dynamic ambient dialogue: only works inside Claude.ai's artifact sandbox
+     (which proxies fetch to api.anthropic.com). Anywhere else the fetch fails
+     and the already-shown static variant line silently stands. */
+  let dialogueGenToken = 0;
+  function buildGameStateSummary() {
+    const flags = Engine.state.flags;
+    const bits = [];
+    bits.push(`Colony strength: ${wst.colonyStrength}`);
+    bits.push(`Enemies defeated: ${Engine.state.kills}`);
+    bits.push(`Ship repaired and flying: ${wst.shipUnlocked ? 'yes' : 'no'}`);
+    bits.push(`Difficulty: ${Engine.state.difficulty}`);
+    if (flags.rivalPath) bits.push(`Rival faction encounter resolved as: ${flags.rivalPath}`);
+    if (flags.reyesPath) bits.push(`Reyes' confession was handled: ${flags.reyesPath}`);
+    if (flags.oseiPath) bits.push(`Osei's discovery was: ${flags.oseiPath}`);
+    return bits.join('. ');
+  }
+  async function attemptDynamicLine(npcId, nodeId, node) {
+    const myToken = ++dialogueGenToken;
+    const dialogLine = document.getElementById('dialogLine');
+    dialogLine.classList.add('dialogRefreshing');
+    const prompt = `You are writing exactly ONE short ambient dialogue line for a character in an original sci-fi survival game called "Beyond the Hollow". Tone: epic and hopeful, never grimdark — a found-family crew building something against the odds.
+
+Character: ${node.personality}
+
+Current game state: ${buildGameStateSummary()}
+
+Write ONE fresh in-character line this character might say right now (max 2 sentences, plain spoken dialogue, wrapped in double quotes). Do not explain yourself, do not add stage directions, do not break character. Return ONLY the line itself.`;
+    try {
+      const fetchPromise = fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 100, messages: [{ role: "user", content: prompt }] })
+      });
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 6000));
+      const response = await Promise.race([fetchPromise, timeoutPromise]);
+      const data = await response.json();
+      const textBlock = (data.content || []).find((b) => b.type === 'text');
+      const line = textBlock && textBlock.text && textBlock.text.trim();
+      if (line && myToken === dialogueGenToken && npcState[npcId].current === nodeId) {
+        dialogLine.textContent = line;
+      }
+    } catch (e) {
+      // Silent fallback — the static variant line already shown stands as-is.
+    } finally {
+      if (myToken === dialogueGenToken) dialogLine.classList.remove('dialogRefreshing');
+    }
+  }
+
+  function showNode(npcId, nodeId) {
+    const tree = dialogueTrees[npcId];
+    const node = tree.nodes[nodeId];
+    npcState[npcId].current = nodeId;
+    document.getElementById('dialogWho').textContent = tree.displayName;
+    let lineText = node.text;
+    if (node.variants) {
+      const pool = typeof node.variants === 'function' ? node.variants() : node.variants;
+      lineText = pool[Math.floor(Math.random() * pool.length)];
+    }
+    const dialogLine = document.getElementById('dialogLine');
+    const dialogChoices = document.getElementById('dialogChoices');
+    const dialogHint = document.getElementById('dialogHint');
+    dialogLine.textContent = lineText;
+    dialogChoices.innerHTML = '';
+    if (node.dynamicEligible) attemptDynamicLine(npcId, nodeId, node);
+    if (node.setFlag) {
+      const [key, val] = node.setFlag.split(':');
+      Engine.state.flags[key] = val;
+      if (key === 'reyesPath') {
+        Engine.choicelog.record('decision_reyes', "The Crash — Reyes' Secret",
+          val === 'confronted' ? 'Pushed him for the truth immediately.' : 'Gave him space to tell it in his own time.');
+      }
+    }
+    if (nodeId === 'discovery_share' || nodeId === 'discovery_suppress') {
+      Engine.state.flags.oseiDiscoveryDone = true;
+      Engine.state.flags.oseiChoice = nodeId;   // exact strings Planet B checks
+      Engine.choicelog.record('decision_osei', "Osei's Discovery",
+        nodeId === 'discovery_share' ? 'Told the whole colony the crash was no accident.' : 'Kept the discovery contained to the crew.');
+    }
+    if (node.choices) {
+      dialogHint.style.display = 'none';
+      node.choices.forEach((choice) => {
+        const btn = document.createElement('button');
+        btn.textContent = choice.label;
+        btn.onclick = () => showNode(npcId, choice.next);
+        dialogChoices.appendChild(btn);
+      });
+    } else {
+      dialogChoices.innerHTML = '';
+      dialogHint.style.display = 'block';
+      dialogHint.textContent = node.next ? 'Tap Interact again to continue' : 'Tap Interact again to end conversation';
+    }
+  }
+  function resolveStartNode(npcId, current, treeStart) {
+    if (npcId === 'osei' && Engine.state.flags.visionSeen && !Engine.state.flags.oseiDiscoveryDone && current === 'loop') {
+      return 'discovery';
+    }
+    return current || treeStart;
+  }
+  function closeDialogue() {
+    wst.dialogueOpen = false;
+    document.getElementById('dialogBox').style.display = 'none';
+  }
+
+  /* ================= resources ================= */
+  function makeResourceNode(x, z, kind = 'wood') {
+    const isScrap = kind === 'scrap';
+    const node = new THREE.Mesh(
+      isScrap ? new THREE.OctahedronGeometry(0.32, 0) : new THREE.SphereGeometry(0.4, 10, 10),
+      new THREE.MeshStandardMaterial(isScrap
+        ? { color: 0xaab0b8, emissive: 0x3a4a55, emissiveIntensity: 0.3, metalness: 0.6, roughness: 0.4, flatShading: true }
+        : { color: 0xffcf5c, emissive: 0x553d00, emissiveIntensity: 0.3 })
+    );
+    node.position.set(x, heightAt(x, z) + 0.4, z);
+    node.castShadow = true;
+    node.userData.isResource = true;
+    node.userData.kind = kind;
+    node.userData.respawnTimer = 0;
+    scene.add(node);
+    resourceNodes.push(node);
+  }
+  function updateResourceRespawns(dt) {
+    for (const node of resourceNodes) {
+      if (!node.visible) {
+        node.userData.respawnTimer -= dt;
+        if (node.userData.respawnTimer <= 0) node.visible = true;
+      }
+    }
+  }
+
+  /* ================= Ashketh vision moment ================= */
+  function triggerVision() {
+    Engine.state.flags.visionSeen = true;
+    const visionOverlay = document.getElementById('visionOverlay');
+    const visionText = document.getElementById('visionText');
+    visionOverlay.style.display = 'flex';
+    requestAnimationFrame(() => {
+      visionOverlay.style.background = 'rgba(6,10,16,0.82)';
+      visionText.style.opacity = '1';
+      visionText.textContent = 'For a moment the air goes still. A pressure behind your eyes, a tone just below hearing — gone before you can be sure it was real.';
+    });
+    setTimeout(() => {
+      visionOverlay.style.background = 'rgba(6,8,12,0)';
+      visionText.style.opacity = '0';
+      setTimeout(() => { visionOverlay.style.display = 'none'; }, 1300);
+    }, 4200);
+    Engine.choicelog.addLore('vision_ruins', 'The Presence in the Ruins',
+      'Near the old structures the air went still — a pressure, a held breath, a tone just below hearing. Osei felt it too.');
+  }
+
+  /* ================= interaction + proximity ================= */
+  function tryInteract() {
+    if (Engine.state.isDead || Engine.player.inCutscene) return;
+    if (nearNpcId) {
+      const tree = dialogueTrees[nearNpcId];
+      const current = npcState[nearNpcId].current;
+      if (!wst.dialogueOpen) {
+        wst.dialogueOpen = true;
+        document.getElementById('dialogBox').style.display = 'block';
+        showNode(nearNpcId, resolveStartNode(nearNpcId, current, tree.start));
+        Engine.audio.sfx.blip();
+        return;
+      }
+      const node = tree.nodes[current];
+      if (node.choices) return;   // must pick a button
+      if (node.next) showNode(nearNpcId, node.next);
+      else closeDialogue();
+      return;
+    }
+    if (nearBeacon && !wst.buildMenuOpen) { openBuildMenu(); return; }
+    if (nearResource) {
+      if (nearResource.userData.kind === 'scrap') wst.scrap += 1;
+      else wst.wood += 1;
+      updateHudBadges();
+      nearResource.userData.respawnTimer = 8;
+      nearResource.visible = false;
+      Engine.audio.sfx.gather();
+    }
+  }
+  function updateProximity() {
+    const flags = Engine.state.flags;
+    nearNpcId = null;
+    const companions = { reyes: reyesNpc, osei: oseiNpc };
+    if (flags.rivalPath === 'truce') companions.kade = rivalNpcs.kade.group;
+    for (const [id, group] of Object.entries(companions)) {
+      const dx = player.position.x - group.position.x;
+      const dz = player.position.z - group.position.z;
+      if (dx * dx + dz * dz < 4) { nearNpcId = id; break; }
+    }
+    nearResource = null;
+    for (const node of resourceNodes) {
+      if (!node.visible) continue;
+      const dx = player.position.x - node.position.x;
+      const dz = player.position.z - node.position.z;
+      if (dx * dx + dz * dz < 2.2) { nearResource = node; break; }
+      node.rotation.y += 0.01;
+    }
+    const dxB = player.position.x - beacon.position.x;
+    const dzB = player.position.z - beacon.position.z;
+    nearBeacon = (dxB * dxB + dzB * dzB) < 5;
+    if (!flags.visionSeen) {
+      const dxM = player.position.x - monolith.position.x;
+      const dzM = player.position.z - monolith.position.z;
+      if (dxM * dxM + dzM * dzM < 25) triggerVision();
+    }
+    if (!flags.rivalEncounterShown) {
+      const dxR = player.position.x - RIVAL_ENCOUNTER.x;
+      const dzR = player.position.z - RIVAL_ENCOUNTER.z;
+      if (dxR * dxR + dzR * dzR < RIVAL_ENCOUNTER.radius * RIVAL_ENCOUNTER.radius) triggerRivalEncounter();
+    }
+    const promptEl = document.getElementById('prompt');
+    if ((nearNpcId || nearBeacon || nearResource) && !wst.dialogueOpen && !wst.buildMenuOpen) {
+      promptEl.classList.add('show');
+      promptEl.textContent = nearNpcId
+        ? `Press E — Talk to ${dialogueTrees[nearNpcId].displayName.split(' ·')[0]}`
+        : nearBeacon
+        ? 'Press E — Build'
+        : (nearResource.userData.kind === 'scrap' ? 'Press E — Gather scrap' : 'Press E — Gather wood');
+    } else {
+      promptEl.classList.remove('show');
+    }
+    if (!nearNpcId && wst.dialogueOpen) closeDialogue();
+    if (!nearBeacon && wst.buildMenuOpen) closeBuildMenu();
+  }
+
+  /* ================= Readiness (the gate to Planet B) ================= */
+  const READINESS_TARGETS = { combatKills: 8, colonyStrength: 24 };
+  function computeReadiness() {
+    const flags = Engine.state.flags;
+    const combat = Math.min(100, (Engine.state.kills / READINESS_TARGETS.combatKills) * 100);
+    const milestones = [flags.visionSeen, !!flags.rivalPath, flags.oseiDiscoveryDone, !!flags.reyesPath];
+    const exploration = (milestones.filter(Boolean).length / milestones.length) * 100;
+    const colony = Math.min(100, (wst.colonyStrength / READINESS_TARGETS.colonyStrength) * 100);
+    const overall = (combat + exploration + colony) / 3;
+    return { combat, exploration, colony, overall };
+  }
+  function updateReadinessUI() {
+    const r = computeReadiness();
+    document.getElementById('readinessBadge').textContent = `🧭 Readiness: ${Math.round(r.overall)}%`;
+    const panel = document.getElementById('readinessPanel');
+    if (panel.style.display === 'block') {
+      document.getElementById('rCombatPct').textContent = Math.round(r.combat) + '%';
+      document.getElementById('rCombatFill').style.width = r.combat + '%';
+      document.getElementById('rExploPct').textContent = Math.round(r.exploration) + '%';
+      document.getElementById('rExploFill').style.width = r.exploration + '%';
+      document.getElementById('rColonyPct').textContent = Math.round(r.colony) + '%';
+      document.getElementById('rColonyFill').style.width = r.colony + '%';
+    }
+  }
+
+  /* ================= name tags ================= */
+  function worldToScreen(pos) {
+    const v = pos.clone().project(camera);
+    if (v.z > 1) return null;
+    return { x: (v.x * 0.5 + 0.5) * window.innerWidth, y: (-v.y * 0.5 + 0.5) * window.innerHeight };
+  }
+  const nameTagIds = { reyes: 'tagReyes', osei: 'tagOsei', kade: 'tagKade' };
+  function updateNameTags() {
+    const targets = { reyes: reyesNpc, osei: oseiNpc };
+    if (Engine.state.flags.rivalPath === 'truce' && !rivalNpcs.kade.dead) targets.kade = rivalNpcs.kade.group;
+    ['reyes', 'osei', 'kade'].forEach((id) => {
+      const el = document.getElementById(nameTagIds[id]);
+      const group = targets[id];
+      if (!el) return;
+      if (!group) { el.style.display = 'none'; return; }
+      const headPos = group.position.clone();
+      headPos.y += 2.05;
+      const dx = headPos.x - player.position.x, dz = headPos.z - player.position.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > 26) { el.style.display = 'none'; return; }
+      const screen = worldToScreen(headPos);
+      if (!screen) { el.style.display = 'none'; return; }
+      el.style.display = 'block';
+      el.style.left = screen.x + 'px';
+      el.style.top = screen.y + 'px';
+      el.style.opacity = Math.max(0.25, 1 - dist / 26);
+    });
+  }
+
   function build() {
     // lighting — hazy, overcast, desaturated
     hemi = new THREE.HemisphereLight(0x7a8078, 0x1c1a16, 0.5); scene.add(hemi);
@@ -1349,20 +2410,81 @@ const WorldA = (() => {
     player.position.set(0, heightAt(0, 5), 5);
     scene.add(player);
     Engine.rig.applyCharacterConfig(playerParts).then((sz) => player.scale.setScalar(sz));
-    // one dummy target proving shared combat + kill flow (Phase 2: real wildlife)
-    spawnDummy(6, -6);
-  }
-  function spawnDummy(x, z) {
-    const g = Engine.rig.makeHumanoidParts(0xe2574c).group;
-    g.position.set(x, 0, z); g.scale.setScalar(0.95); scene.add(g);
-    enemies.push({ group: g, hp: 60, dead: false });
+
+    // companions
+    reyesNpc = makeCompanion(0xe28a4c, -6, -4);   // warm orange \u2014 pilot/mechanic
+    oseiNpc = makeCompanion(0xb48ff0, 7, -8);     // violet \u2014 scientist
+
+    // colony beacon + obstacles
+    beacon = new THREE.Group();
+    const beaconBase = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 0.3, 8), new THREE.MeshStandardMaterial({ color: 0x2a2f3a }));
+    beaconBase.position.y = 0.15; beaconBase.castShadow = true;
+    const beaconPost = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 1.6, 8), new THREE.MeshStandardMaterial({ color: 0x3a4250 }));
+    beaconPost.position.y = 1.0; beaconPost.castShadow = true;
+    const beaconLight = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 10),
+      new THREE.MeshStandardMaterial({ color: 0x6fe0c5, emissive: 0x6fe0c5, emissiveIntensity: 0.8 }));
+    beaconLight.position.y = 1.9;
+    beacon.add(beaconBase, beaconPost, beaconLight);
+    beacon.position.set(3, heightAt(3, 2), 2);
+    beacon.userData.radius = 0.7;
+    scene.add(beacon); obstacles.push(beacon);
+
+    // ancient monolith (Ashketh's first hint) \u2014 embedded within the ruins
+    monolith = new THREE.Mesh(new THREE.BoxGeometry(1.2, 4.5, 1.2),
+      new THREE.MeshStandardMaterial({ color: 0x1a1f2b, emissive: 0x2a6f6b, emissiveIntensity: 0.5, flatShading: true }));
+    monolith.position.set(RUINS_CENTER.x, heightAt(RUINS_CENTER.x, RUINS_CENTER.z + 5) + 2.25, RUINS_CENTER.z + 5);
+    monolith.castShadow = true;
+    monolith.userData.radius = 1.2;
+    scene.add(monolith); obstacles.push(monolith);
+
+    // wildlife (ported spawn set; last two already tearing into the rival outpost)
+    [[10, 10], [-14, 8], [6, 16], [-9, -14], [18, 5], [-19, 16], [-23, 13]]
+      .forEach(([x, z]) => enemies.push(makeEnemy(x, z)));
+
+    // rival faction
+    rivalNpcs.kade = makeRivalHumanoid(-20, 15);
+    rivalNpcs.scout = makeRivalHumanoid(-22, 13);
+
+    // resource nodes
+    makeResourceNode(4, -3); makeResourceNode(9, 6); makeResourceNode(-10, 3); makeResourceNode(-3, -9);
+    makeResourceNode(-15, -6, 'scrap'); makeResourceNode(13, -10, 'scrap'); makeResourceNode(-5, 12, 'scrap');
+
+    // one-time UI wiring + readiness feeds the armory's gated unlocks
+    document.getElementById('buildCloseBtn').onclick = closeBuildMenu;
+    document.getElementById('btnFightRivals').onclick = resolveRivalFight;
+    document.getElementById('btnTruceRivals').onclick = resolveRivalTruce;
+    document.getElementById('readinessBadge').onclick = () => {
+      const panel = document.getElementById('readinessPanel');
+      panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+      updateReadinessUI();
+      Engine.audio.sfx.blip();
+    };
+    document.getElementById('readinessCloseBtn').onclick = () => { document.getElementById('readinessPanel').style.display = 'none'; };
+    document.getElementById('btnRespawn').onclick = () => {
+      Engine.state.hp = Engine.state.maxHp;
+      Engine.state.stamina = Engine.state.maxStamina;
+      Engine.state.isDead = false;
+      Engine.player.revive();
+      player.position.set(0, heightAt(0, 5), 5);
+      document.getElementById('gameOverOverlay').style.display = 'none';
+    };
+    Engine.armory.readinessProvider = () => computeReadiness().overall;
+    updateHudBadges();
   }
   function enter() { Object.assign(Engine.state, { maxHp: 140, hp: Engine.state.hp || 140 }); }
+  // richer combat targets: wildlife + (hostile-path) rivals \u2014 Engine.combat consumes these
+  function getCombatTargets() {
+    const targets = [];
+    enemies.forEach((en) => { if (!en.dead) targets.push({ kind: 'enemy', ref: en, position: en.group.position }); });
+    if (Engine.state.flags.rivalPath === 'hostile') {
+      Object.values(rivalNpcs).forEach((r) => { if (!r.dead && r.active) targets.push({ kind: 'rival', ref: r, position: r.group.position }); });
+    }
+    return targets;
+  }
   function getTargets() { return enemies; }
-  function onKill() {
-    Engine.ashketh.say('A test passed. Kessa\u2019s Reach remembers.', 2600);
-    // DEMO: a real Planet-A decision (rival fight/truce, etc.) records like this.
-    Engine.choicelog.record('demoA_firstBlood', 'First Blood on the Reach', 'You met the frontier\u2019s threat head-on.');
+  function onDeath() {
+    closeDialogue();
+    setTimeout(() => { document.getElementById('gameOverOverlay').style.display = 'flex'; }, 900);
   }
   function onLand(x, y, z) { spawnDustBurst(x, heightAt(x, z), z); }
   function update(dt) {
@@ -1371,17 +2493,29 @@ const WorldA = (() => {
     updateDayNight(dt);
     updateParticles(dt);
     updateWindSway(dt);
-    for (const e of enemies) if (!e.dead) e.group.position.y = heightAt(e.group.position.x, e.group.position.z);
+    updateEnemies(dt);
+    updateRivalNpcs(dt);
+    updateKadeContribution(dt);
+    animateCompanionsIdle(dt);
+    updateProximity();
+    updateResourceRespawns(dt);
+    updateReadinessUI();
+    updateNameTags();
+    // readiness-gated weapon unlocks don't have a kill event \u2014 poll once a second
+    unlockCheckTimer += dt;
+    if (unlockCheckTimer > 1) { unlockCheckTimer = 0; Engine.armory.checkUnlocks(); }
   }
-  function onInteract() {
-    // DEMO: discoverable lore in the ruins records like this.
-    Engine.choicelog.addLore('demoA_pillar', 'Weathered Pillar', 'Glyphs beneath the moss pulse faintly when you near them \u2014 not decoration. A signal.');
-  }
-  return { id: 'kessasReach', name: "Kessa's Reach", scene, mood, build, enter, update, heightAt, getTargets, onKill, onInteract, onLand,
+  function onInteract() { tryInteract(); }
+  function uiBlocked() { return wst.dialogueOpen || wst.buildMenuOpen || wst.encounterOpen; }
+  function talking() { return wst.dialogueOpen; }
+  return { id: 'kessasReach', name: "Kessa's Reach", scene, mood, build, enter, update, heightAt,
+    getTargets, getCombatTargets, onInteract, onLand, onDeath, uiBlocked, talking,
     obstacles, bound: 48, state: wst, RUINS_CENTER,
+    spawnDust: (x, y, z, count, color, opacity) => spawnDustBurst(x, y, z, count, color, opacity),
     getLandmarks() { return [
       { name: 'Colony Beacon', x: 3, z: 2, type: 'home' },
       { name: 'Crash Site', x: 0, z: 15, type: 'place' },
+      { name: 'Broken Comms Dish', x: 17, z: -4, type: 'place' },
       { name: 'The Ruins', x: RUINS_CENTER.x, z: RUINS_CENTER.z, type: 'story' },
       { name: 'Skirmish Ridge', x: -20, z: 14, type: 'story' },
     ]; },
@@ -1471,6 +2605,7 @@ function animate() {
   if (!w) { composer.render(); Engine.input.endFrame(); return; }
   if (Engine.state.paused) { composer.render(); Engine.input.endFrame(); return; }
   w.update(dt);
+  Engine.combat.update(dt);    // tracers / rockets / recoil in the active world
   gradePass.uniforms.time.value += dt;
   updateHUD();
   composer.render();
@@ -1587,17 +2722,20 @@ document.getElementById('btnCloseMap').onclick = () => Engine.map.close();
    ========================================================================== */
 Engine.armory = (() => {
   const DEFS = [
-    { id: 'stick', name: 'Branch', tagline: 'Whatever you grabbed from the wreck.', type: 'melee', damage: 14, range: 2.1, cooldown: 0.5, unlock: { type: 'always' } },
-    { id: 'bat', name: 'Scrap Bat', tagline: 'Salvaged metal, heavier, slower.', type: 'melee', damage: 24, range: 2.3, cooldown: 0.68, unlock: { type: 'kills', value: 3 } },
+    { id: 'stick', name: 'Branch', tagline: 'Whatever you could grab from the crash site.', type: 'melee', damage: 14, range: 2.1, cooldown: 0.5, unlock: { type: 'always' } },
+    { id: 'bat', name: 'Scrap Bat', tagline: 'Salvaged metal, heavier hit, slower swing.', type: 'melee', damage: 24, range: 2.3, cooldown: 0.68, unlock: { type: 'kills', value: 3 } },
     { id: 'sword', name: 'Fabricated Blade', tagline: 'Balanced, fast, precise.', type: 'melee', damage: 32, range: 2.6, cooldown: 0.42, unlock: { type: 'kills', value: 8 } },
-    { id: 'gun', name: 'Sidearm', tagline: 'Ranged. (ranged fire ported later)', type: 'ranged', damage: 20, range: 22, cooldown: 0.32, unlock: { type: 'readiness', value: 40 } },
-    { id: 'rpg', name: 'Launcher', tagline: 'Explosive. (ranged fire ported later)', type: 'explosive', damage: 65, range: 30, cooldown: 1.7, splashRadius: 3.6, unlock: { type: 'readiness', value: 75 } },
+    { id: 'gun', name: 'Sidearm', tagline: 'Ranged. Instant hit, tight cone, limited by recoil.', type: 'ranged', damage: 20, range: 22, cooldown: 0.32, unlock: { type: 'readiness', value: 40 } },
+    { id: 'rpg', name: 'Launcher', tagline: 'Slow, heavy, explosive. Respect the blast radius.', type: 'explosive', damage: 65, range: 30, cooldown: 1.7, splashRadius: 3.6, unlock: { type: 'readiness', value: 75 } },
   ];
   const st = { equipped: 'stick', unlocked: new Set(['stick']) };
+  // Worlds with a Readiness system plug it in here (WorldA sets this).
+  let readinessProvider = null;
   function isUnlocked(def) {
     if (def.unlock.type === 'always') return true;
     if (def.unlock.type === 'kills') return (Engine.state.kills || 0) >= def.unlock.value;
-    return false; // readiness-gated: unlock once Readiness is ported
+    if (def.unlock.type === 'readiness') return readinessProvider ? readinessProvider() >= def.unlock.value : false;
+    return false;
   }
   function reqText(def) {
     if (def.unlock.type === 'kills') return `Unlock: defeat ${def.unlock.value} (${Math.min(Engine.state.kills || 0, def.unlock.value)}/${def.unlock.value})`;
@@ -1605,24 +2743,76 @@ Engine.armory = (() => {
     return '';
   }
   function checkUnlocks() {
-    DEFS.forEach((d) => { if (!st.unlocked.has(d.id) && isUnlocked(d)) { st.unlocked.add(d.id); Engine.ashketh.say('Weapon available: ' + d.name, 2400); persist(); } });
+    DEFS.forEach((d) => { if (!st.unlocked.has(d.id) && isUnlocked(d)) { st.unlocked.add(d.id); Engine.toast('NEW WEAPON UNLOCKED: ' + d.name.toUpperCase()); persist(); } });
     render();
   }
+  /* ported buildWeaponModel — the five real held models, with muzzle points */
   function buildModel(def) {
-    const w = WorldManager.current; if (!w || !w.playerParts) return;
+    const w = WorldManager.current; if (!w || !w.playerParts || !def) return;
     const slot = w.playerParts.weaponSlot; if (!slot) return;
-    if (slot._weapon) { slot.remove(slot._weapon); slot._weapon = null; }
-    const g = new THREE.Group();
-    const mat = new THREE.MeshStandardMaterial({ color: def.type === 'melee' ? 0x9a7b4a : 0x384050, metalness: 0.5, roughness: 0.5 });
-    if (def.type === 'melee') { const m = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.9, 0.06), mat); m.position.y = -0.5; g.add(m); }
-    else { const m = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.16, 0.5), mat); m.position.set(0, -0.5, 0.2); g.add(m); }
-    g.position.set(0, -0.1, 0); slot.add(g); slot._weapon = g;
+    while (slot.children.length) slot.remove(slot.children[0]);
+    const group = new THREE.Group();
+    const id = def.id;
+    if (id === 'stick') {
+      group.add(new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.045, 0.62, 6),
+        new THREE.MeshStandardMaterial({ color: 0x8a6a45, roughness: 0.9 })));
+    } else if (id === 'bat') {
+      const bat = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.03, 0.68, 8),
+        new THREE.MeshStandardMaterial({ color: 0x6a6a6a, metalness: 0.4, roughness: 0.5 }));
+      const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.16, 8),
+        new THREE.MeshStandardMaterial({ color: 0x2a2a2a }));
+      grip.position.y = -0.28;
+      group.add(bat, grip);
+    } else if (id === 'sword') {
+      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.62, 0.018),
+        new THREE.MeshStandardMaterial({ color: 0xd8dde3, metalness: 0.7, roughness: 0.25 }));
+      blade.position.y = 0.18;
+      const guard = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.05, 0.05),
+        new THREE.MeshStandardMaterial({ color: 0x8a7a3a, metalness: 0.6, roughness: 0.3 }));
+      guard.position.y = -0.14;
+      const hilt = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.22, 8),
+        new THREE.MeshStandardMaterial({ color: 0x2a2a2a }));
+      hilt.position.y = -0.26;
+      group.add(blade, guard, hilt);
+    } else if (id === 'gun') {
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.16, 0.32),
+        new THREE.MeshStandardMaterial({ color: 0x2a2d33, metalness: 0.5, roughness: 0.4 }));
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.28, 8),
+        new THREE.MeshStandardMaterial({ color: 0x1a1c20, metalness: 0.7, roughness: 0.3 }));
+      barrel.rotation.x = Math.PI / 2;
+      barrel.position.set(0, 0.02, -0.28);
+      const muzzleTip = new THREE.Object3D();
+      muzzleTip.position.set(0, 0.02, -0.44);
+      group.add(body, barrel, muzzleTip);
+      group.userData.muzzle = muzzleTip;
+    } else if (id === 'rpg') {
+      const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.9, 10),
+        new THREE.MeshStandardMaterial({ color: 0x3f4a37, metalness: 0.4, roughness: 0.6, flatShading: true }));
+      tube.rotation.x = Math.PI / 2;
+      tube.position.z = -0.1;
+      const backCone = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.22, 10),
+        new THREE.MeshStandardMaterial({ color: 0x2a3025 }));
+      backCone.rotation.x = -Math.PI / 2;
+      backCone.position.z = 0.4;
+      const sight = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.08, 0.03),
+        new THREE.MeshStandardMaterial({ color: 0x1a1a1a }));
+      sight.position.set(0, 0.13, -0.1);
+      const muzzleTip = new THREE.Object3D();
+      muzzleTip.position.set(0, 0, -0.6);
+      group.add(tube, backCone, sight, muzzleTip);
+      group.userData.muzzle = muzzleTip;
+    }
+    group.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    slot.add(group);
+    slot.userData.muzzle = group.userData.muzzle || null;
   }
   function equip(id) {
     const def = DEFS.find((d) => d.id === id); if (!def || !st.unlocked.has(id)) return;
     st.equipped = id;
-    Engine.player.ATTACK.damage = def.damage; Engine.player.ATTACK.range = def.range; Engine.player.ATTACK.cooldown = def.cooldown;
-    buildModel(def); persist(); render(); Engine.audio.sfx.blip();
+    buildModel(def);
+    const badge = document.getElementById('weaponBadge');
+    if (badge) badge.textContent = '🗡️ Weapon: ' + def.name;
+    persist(); render(); Engine.audio.sfx.blip();
   }
   function render() {
     const list = document.getElementById('armoryList'); if (!list) return; list.innerHTML = '';
@@ -1642,7 +2832,8 @@ Engine.armory = (() => {
   async function load() { const d = await Engine.storage.get('weapon:state'); if (d) { st.equipped = d.equipped || 'stick'; (d.unlocked || ['stick']).forEach((x) => st.unlocked.add(x)); } }
   function open() { Engine.state.paused = true; document.getElementById('armoryOverlay').style.display = 'flex'; render(); }
   function close() { Engine.state.paused = !Engine.state.started; document.getElementById('armoryOverlay').style.display = 'none'; }
-  return { DEFS, st, isUnlocked, checkUnlocks, buildModel, equip, render, load, open, close };
+  return { DEFS, st, isUnlocked, checkUnlocks, buildModel, equip, render, load, open, close,
+    set readinessProvider(fn) { readinessProvider = fn; } };
 })();
 document.getElementById('btnArmory').onclick = () => Engine.armory.open();
 document.getElementById('btnCloseArmory').onclick = () => Engine.armory.close();

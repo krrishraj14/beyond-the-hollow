@@ -124,15 +124,15 @@ The first world and the game's proving ground. The crew crash-lands here; the pl
 - [x] Post-processing: bloom + ACES + cinematic grade + rim light + particles + wind sway + dust bursts
 - [ ] Character system incl. **headgear** (writes `character:config`)
 - [x] Movement, stamina/sprint, jump/gravity, footsteps, rig animation *(talking + death animation land with dialogue/game-over in Phase 2)*
-- [ ] Melee combat + full `WEAPON_DEFS` (melee/ranged/explosive) + tracers/recoil/rockets + armory UI + unlock toasts (`weapon:state`)
-- [ ] Wildlife enemies (params + spawn set + AI) + hurt flash/shake + game over
-- [ ] Resources (wood/scrap), resource nodes + respawn, `structureDefs` + build menu + colony strength
-- [ ] Companions (Reyes/Osei/Kade) + name tags + full `dialogueTrees` + branch flags
-- [ ] Dynamic ambient dialogue (dynamicEligible/personality/variants + silent fallback)
-- [ ] Rival encounter (fight/truce, Kade recruit + contribution)
-- [ ] Decisions 1–3 wired to flags **and** `Engine.choicelog.record(...)`; ruins vision (`visionSeen`)
+- [x] Melee combat + full `WEAPON_DEFS` (melee/ranged/explosive) + tracers/recoil/rockets + armory UI + unlock toasts (`weapon:state`)
+- [x] Wildlife enemies (params + spawn set + AI) + hurt flash/shake + game over
+- [x] Resources (wood/scrap), resource nodes + respawn, `structureDefs` + build menu + colony strength
+- [x] Companions (Reyes/Osei/Kade) + name tags + full `dialogueTrees` + branch flags
+- [x] Dynamic ambient dialogue (dynamicEligible/personality/variants + silent fallback)
+- [x] Rival encounter (fight/truce, Kade recruit + contribution)
+- [x] Decisions 1–3 wired to flags **and** `Engine.choicelog.record(...)`; ruins vision (`visionSeen`)
 - [ ] Ship: unlock at 50%, 6-DoF flight, fuel, ship weapon, board/exit
-- [ ] Readiness (three-track formula + badge/panel)
+- [x] Readiness (three-track formula + badge/panel)
 - [ ] Summon at 100% → **`Engine.goto('hollowVerge')`** carrying appearance/weapon/flags
 - [ ] Audio (SFX set + ambient wind + tension score + footsteps)
 - [ ] Settings (difficulty/colorblind/graphics) via shared `settings:v1`
