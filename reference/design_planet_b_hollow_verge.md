@@ -65,20 +65,20 @@ Reads `character:config`, `weapon:state`, `settings:v1`, and `save:v1` (for choi
 ---
 
 ## 11. Port checklist — Planet B → `WorldB` (tick each during the merge)
-- [ ] Ring-world geometry: floor + glow-lines + pillars + debris
-- [ ] Cold lighting + fog + colder-tuned grade/bloom
-- [ ] Efficient GPU point-sprite ambient particles (keep — do not use per-mesh)
-- [ ] Audio: dissonant ambient hum + colder score + full SFX incl. beacon chime
-- [ ] Carried character + weapon applied on entry (from live shared state)
-- [ ] Guardian constructs (stationary ranged, hp 45, `fireProjectile`)
-- [ ] Mutated creatures (fast melee, hp 35)
-- [ ] Ambient roamers outside trials
-- [ ] Trial 1 — Strength: waves `[2,3,4]`, retry on fail
-- [ ] Trial 2 — Restraint: reach altar without retaliating; provokers; fail-on-strike
-- [ ] Trial 3 — Cooperation: Warden Fragment + dual beacons, hold 2.5s, fail if ally attacked
-- [ ] Footholds: waypoint + repair, instant-construct, their functions (fast travel/stamina, HP regen)
-- [ ] Ashketh overlay + static musings + dynamic musings (silent fallback)
-- [ ] Choice echo from live flags into trial-start dialogue **and** ending
-- [ ] Ending: trust score (0–3) → four tiers, staged cutscene, retryable restart
-- [ ] Settings via shared `settings:v1`
+- [x] Ring-world geometry: floor + glow-lines + pillars + debris
+- [x] Cold lighting + fog + colder-tuned grade/bloom
+- [x] Efficient GPU point-sprite ambient particles (keep — do not use per-mesh)
+- [x] Audio: dissonant ambient hum (per-world mood retune) + full SFX incl. beacon chime *(tension-reactive score simplified to the shared ambient bed — see scaffold notes)*
+- [x] Carried character + weapon applied on entry (from live shared state)
+- [x] Guardian constructs (stationary ranged, hp 45, `fireProjectile`)
+- [x] Mutated creatures (fast melee, hp 35)
+- [x] Ambient roamers outside trials
+- [x] Trial 1 — Strength: waves `[2,3,4]`, retry on fail
+- [x] Trial 2 — Restraint: reach altar without retaliating; provokers; fail-on-strike
+- [x] Trial 3 — Cooperation: Warden Fragment + dual beacons, hold 2.5s, fail if ally attacked
+- [x] Footholds: waypoint + repair, instant-construct, their functions (fast travel/stamina, HP regen)
+- [x] Ashketh overlay + static musings + dynamic musings (silent fallback)
+- [x] Choice echo from live flags into trial-start dialogue **and** ending
+- [x] Ending: trust score (0–3) → four tiers, staged cutscene, retryable restart
+- [x] Settings via shared `settings:v1`
 - [ ] Save/load folded into unified `save:v1` (retire `save:planetb:v1`)

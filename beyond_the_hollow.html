@@ -199,6 +199,18 @@
   #gameOverOverlay p { color: #9aa0b0; margin: 0 0 20px; font-size: 14px; max-width: 320px; }
   #gameOverOverlay button { cursor: pointer; width: 200px; padding: 12px; border: none; border-radius: 8px; background: #6fe0c5; color: #0b1116; font-weight: 700; font-size: 14px; }
 
+  #trialBadge {
+    display: none; margin-top: 4px; background: rgba(16,20,26,.9); border: 1px solid rgba(180,143,240,.45);
+    color: #cfb8f5; border-radius: 10px; padding: 6px 12px; font-size: 11px; font-weight: 700; letter-spacing: .05em;
+  }
+  .bigOverlay {
+    position: fixed; inset: 0; background: rgba(6,10,10,.9); display: none;
+    align-items: center; justify-content: center; flex-direction: column; text-align: center; z-index: 34; padding: 20px;
+  }
+  .bigOverlay h2 { font-size: 26px; margin: 0 0 8px; color: #6fe0c5; }
+  .bigOverlay p { color: #9aa0b0; margin: 0 0 20px; font-size: calc(14px * var(--text-scale,1)); max-width: 360px; font-style: italic; line-height: 1.5; }
+  .bigOverlay button { cursor: pointer; width: 220px; padding: 12px; border: none; border-radius: 8px; background: #6fe0c5; color: #05171b; font-weight: 700; font-size: 14px; }
+
   #weaponToast {
     position: fixed; top: 70px; left: 50%; transform: translateX(-50%) translateY(-10px);
     background: rgba(10,14,20,.92); border: 1px solid #6fe0c5; border-radius: 10px; padding: 10px 18px;
@@ -250,6 +262,7 @@
     <div id="weaponBadge">🗡️ Weapon: Branch</div>
     <div id="enemyHpBox">SKITTERLING<div class="enemyBarTrack"><div id="enemyHpFill" style="width:100%"></div></div></div>
   </div>
+  <div id="trialBadge">TRIAL OF STRENGTH — Wave 1/3</div>
 </div>
 
 <div id="prompt"></div>
@@ -308,6 +321,39 @@
   <h2>You Were Overwhelmed</h2>
   <p>The wildlife here doesn't forgive carelessness. Get back up and try again.</p>
   <button id="btnRespawn">Respawn</button>
+</div>
+
+<div class="bigOverlay" id="trialCompleteOverlay">
+  <h2>Trial of Strength — Passed</h2>
+  <p>"Strength answers force with force. It is not the only answer. But it is not the wrong one, either."</p>
+  <button id="btnContinueAfterTrial">Continue</button>
+</div>
+
+<div class="bigOverlay" id="trial2CompleteOverlay">
+  <h2>Trial of Restraint — Passed</h2>
+  <p>"They struck at you. You let them. That took more control than the sword ever did."</p>
+  <button id="btnContinueAfterTrial2">Continue</button>
+</div>
+
+<div class="bigOverlay" id="trial3CompleteOverlay">
+  <h2>Trial of Cooperation — Passed</h2>
+  <p>"Alone, you could have forced this gate, or refused it. Together, you simply opened it. Ashketh did not expect that answer either."</p>
+  <button id="btnContinueAfterTrial3">Continue</button>
+</div>
+
+<div class="bigOverlay" id="trial3FailOverlay" style="background:rgba(10,4,4,.88);">
+  <h2 style="color:#e2574c;font-size:24px;">The Fragment Recoils</h2>
+  <p style="max-width:340px;">"You raised a hand against the one thing here that trusted you. Return to the gate. It will trust you again — in time."</p>
+  <button id="btnRetryTrial3" style="width:200px;">Try Again</button>
+</div>
+
+<div id="thresholdGateOverlay" style="position:fixed;inset:0;background:rgba(4,2,10,0);display:none;align-items:center;justify-content:center;flex-direction:column;text-align:center;z-index:60;padding:24px;transition:background 2.5s ease;">
+  <p id="thresholdLine" style="font-size:calc(17px * var(--text-scale,1));color:#ede6fa;font-style:italic;max-width:540px;line-height:1.8;opacity:0;transition:opacity 1.4s ease;text-shadow:0 0 18px rgba(180,143,240,0.7);"></p>
+  <div id="thresholdFinal" style="display:none;margin-top:32px;opacity:0;transition:opacity 2s ease;">
+    <h2 style="letter-spacing:0.12em;color:#b48ff0;font-size:28px;margin:0 0 14px;" id="thresholdTitle">BEYOND THE HOLLOW</h2>
+    <p id="thresholdEndingText" style="color:#c8d0dc;font-size:calc(14px * var(--text-scale,1));max-width:460px;margin:0 auto 22px;line-height:1.6;"></p>
+    <button id="btnEndingRestart" style="cursor:pointer;padding:12px 24px;border:none;border-radius:8px;background:#b48ff0;color:#0b0714;font-weight:700;font-size:14px;">The Threshold Closes</button>
+  </div>
 </div>
 
 <div id="flightHud">
@@ -971,6 +1017,8 @@ Engine.combat = (() => {
   function performAttack() {
     const s = Engine.state, w = world();
     if (!w || s.isDead) return;
+    // world veto (Trial of Restraint: ANY attack fails; striking the Warden fails Trial 3)
+    if (w.interceptAttack && w.interceptAttack()) return;
     const def = Engine.armory.DEFS.find((d) => d.id === Engine.armory.st.equipped) || Engine.armory.DEFS[0];
     s.attackCooldown = def.cooldown;
     if (def.type === 'melee') {
@@ -1141,7 +1189,8 @@ Engine.settings = (() => {
   function apply() {
     const s = Engine.state;
     document.body.style.filter = s.colorblindMode ? 'saturate(1.35) hue-rotate(-12deg)' : 'none';
-    bloomPass.strength = s.graphicsQuality === 'high' ? 0.55 : 0.0;
+    const worldBloom = (typeof WorldManager !== 'undefined' && WorldManager.current && WorldManager.current.mood && WorldManager.current.mood.bloom) || 0.55;
+    bloomPass.strength = s.graphicsQuality === 'high' ? worldBloom : 0.0;
     renderer.setPixelRatio(s.graphicsQuality === 'high' ? Math.min(window.devicePixelRatio, 2) : 1);
     document.documentElement.style.setProperty('--text-scale', TEXT_SCALE[s.textSize] || 1);
   }
@@ -1266,10 +1315,11 @@ const WorldManager = (() => {
     if (!next._built) { next.build(); next._built = true; }
     current = next;
     renderPass.scene = next.scene;            // retarget the shared composer
-    // apply world mood to grade + ambient
+    // apply world mood to grade + bloom + ambient
     if (next.mood) {
       gradePass.uniforms.tint.value.copy(next.mood.tint || new THREE.Color(1, 1, 1));
       gradePass.uniforms.exposure.value = next.mood.exposure ?? 1.0;
+      if (Engine.state.graphicsQuality === 'high') bloomPass.strength = next.mood.bloom ?? 0.55;
       Engine.audio.startAmbient(next.mood.audio || { base: 70, warmth: 0.6 });
     }
     Engine.player.attach(next.player, next);
@@ -2728,16 +2778,16 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
       Engine.audio.sfx.blip();
     };
     document.getElementById('readinessCloseBtn').onclick = () => { document.getElementById('readinessPanel').style.display = 'none'; };
-    document.getElementById('btnRespawn').onclick = () => {
-      Engine.state.hp = Engine.state.maxHp;
-      Engine.state.stamina = Engine.state.maxStamina;
-      Engine.state.isDead = false;
-      Engine.player.revive();
-      player.position.set(0, heightAt(0, 5), 5);
-      document.getElementById('gameOverOverlay').style.display = 'none';
-    };
     Engine.armory.readinessProvider = () => computeReadiness().overall;
     updateHudBadges();
+  }
+  function onRespawn() {
+    Engine.state.hp = Engine.state.maxHp;
+    Engine.state.stamina = Engine.state.maxStamina;
+    Engine.state.isDead = false;
+    Engine.player.revive();
+    player.position.set(0, heightAt(0, 5), 5);
+    document.getElementById('gameOverOverlay').style.display = 'none';
   }
   function enter() {
     Object.assign(Engine.state, { maxHp: 140, hp: Engine.state.hp || 140 });
@@ -2810,7 +2860,7 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
   function uiBlocked() { return wst.dialogueOpen || wst.buildMenuOpen || wst.encounterOpen; }
   function talking() { return wst.dialogueOpen; }
   return { id: 'kessasReach', name: "Kessa's Reach", scene, mood, build, enter, exit, update, heightAt,
-    getTargets, getCombatTargets, onInteract, onLand, onDeath, uiBlocked, talking,
+    getTargets, getCombatTargets, onInteract, onLand, onDeath, onRespawn, uiBlocked, talking,
     obstacles, bound: 48, state: wst, RUINS_CENTER,
     spawnDust: (x, y, z, count, color, opacity) => spawnDustBurst(x, y, z, count, color, opacity),
     getLandmarks() { return [
@@ -2833,51 +2883,847 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
    ========================================================================== */
 const WorldB = (() => {
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0x0a1420, 14, 70);
-  scene.background = new THREE.Color(0x0a1018);
+  scene.background = new THREE.Color(0x0a0f16);
+  scene.fog = new THREE.Fog(0x0a0f16, 18, 75);
   let player, playerParts;
   const enemies = [];
-  const mood = { tint: new THREE.Color(0.86, 0.94, 1.08), exposure: 0.96, audio: { base: 52, warmth: 0.2 } };
+  const obstacles = [];
+  const projectiles = [];
+  const mood = { tint: new THREE.Color(0.86, 0.94, 1.08), exposure: 0.96, bloom: 0.85, audio: { base: 52, warmth: 0.2 } };
+  const wst = {
+    trialActive: false, trialWave: 0, trialComplete: false,
+    trial2Active: false, trial2Complete: false,
+    trial3Active: false, trial3Complete: false, trial3HoldTimer: 0,
+    thresholdTriggered: false,
+  };
+  let keyLight = null;
+  let nearTrialEntrance = false, nearTrial2Entrance = false, nearTrial3Entrance = false;
+  let nearWardenFragment = false, nearFoothold = null;
+  let wardenFragment = null, beaconA = null, beaconB = null;
+  const provokers = [];
+  const trialEnemies = [];
+  let musingTimer = 110;
+  let ambientGeo = null, ambientPoints = null;
+  const AMBIENT_COUNT = 90;
 
   function heightAt() { return 0; } // ring-world floor is flat
 
-  function build() {
-    scene.add(new THREE.HemisphereLight(0x3a4a6a, 0x05080e, 0.6));
-    const key = new THREE.DirectionalLight(0xbcd4ff, 0.9); key.position.set(-20, 40, -10); key.castShadow = true; scene.add(key);
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x1a2230, roughness: 0.5, metalness: 0.4 }));
-    floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
-    // glowing structural pillars (PORT: addPillar / addFloorGlowLine / addDebris)
-    for (let i = 0; i < 10; i++) {
-      const x = (Math.random() - 0.5) * 70, z = (Math.random() - 0.5) * 70;
-      const p = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.0, 16, 8), new THREE.MeshStandardMaterial({ color: 0x2a3550, emissive: 0x1c3560, emissiveIntensity: 0.6 }));
-      p.position.set(x, 8, z); p.castShadow = true; scene.add(p);
+  const flags = () => Engine.state.flags;
+  const say = (text, ms) => Engine.ashketh.say(text, ms || 4500);
+
+  /* ---- geometry builders (ported) ---- */
+  function addFloorGlowLine(x, z, w, d, rotY) {
+    const line = new THREE.Mesh(new THREE.PlaneGeometry(w, d),
+      new THREE.MeshStandardMaterial({ color: 0x0a1218, emissive: 0x2a8fae, emissiveIntensity: 0.4 }));
+    line.rotation.x = -Math.PI / 2;
+    line.rotation.z = rotY;
+    line.position.set(x, 0.02, z);
+    scene.add(line);
+  }
+  function addPillar(x, z, height) {
+    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.9, height, 8),
+      new THREE.MeshStandardMaterial({ color: 0x2a323e, metalness: 0.5, roughness: 0.4, flatShading: true }));
+    pillar.position.set(x, height / 2, z);
+    pillar.castShadow = true;
+    pillar.userData.radius = 0.9;
+    scene.add(pillar); obstacles.push(pillar);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.75, 0.06, 8, 16),
+      new THREE.MeshStandardMaterial({ color: 0x2a8fae, emissive: 0x2a8fae, emissiveIntensity: 0.6 }));
+    ring.position.set(x, height * 0.7, z);
+    ring.rotation.x = Math.PI / 2;
+    scene.add(ring);
+  }
+  function addDebris(x, z) {
+    const debris = new THREE.Mesh(new THREE.BoxGeometry(0.8 + Math.random(), 0.4, 0.8 + Math.random()),
+      new THREE.MeshStandardMaterial({ color: 0x33393f, metalness: 0.3, roughness: 0.7, flatShading: true }));
+    debris.position.set(x, 0.2, z);
+    debris.rotation.y = Math.random() * Math.PI;
+    debris.castShadow = true;
+    debris.userData.radius = 0.7;
+    scene.add(debris); obstacles.push(debris);
+  }
+  function addWallSegment(x, z) {
+    const seg = new THREE.Mesh(new THREE.BoxGeometry(0.8, 3, 2.2),
+      new THREE.MeshStandardMaterial({ color: 0x232a34, metalness: 0.4, roughness: 0.5, flatShading: true }));
+    seg.position.set(x, 1.5, z);
+    seg.castShadow = true;
+    seg.userData.radius = 1.2;
+    scene.add(seg); obstacles.push(seg);
+  }
+
+  /* ---- threats: guardians (stationary ranged) + mutants (fast melee) ---- */
+  function makeGuardian(x, z) {
+    const group = new THREE.Group();
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 0.3, 8),
+      new THREE.MeshStandardMaterial({ color: 0x2a323e, metalness: 0.6, roughness: 0.3 }));
+    base.position.y = 0.15;
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.9, 0.5),
+      new THREE.MeshStandardMaterial({ color: 0x3a4450, metalness: 0.6, roughness: 0.3, flatShading: true }));
+    body.position.y = 0.8;
+    body.castShadow = true;
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8),
+      new THREE.MeshStandardMaterial({ color: 0xff4433, emissive: 0xff4433, emissiveIntensity: 1 }));
+    eye.position.set(0, 1.0, 0.28);
+    group.add(base, body, eye);
+    group.position.set(x, 0, z);
+    scene.add(group);
+    return { group, eye, kind: 'guardian', hp: 45, maxHp: 45, active: false, dead: false, fireCooldown: 0, hitFlashTimer: 0 };
+  }
+  function makeMutant(x, z) {
+    const group = new THREE.Group();
+    const bodyMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(0.6, 1),
+      new THREE.MeshStandardMaterial({ color: 0x5a2a3a, flatShading: true, emissive: 0x000000 }));
+    bodyMesh.position.y = 0.6;
+    bodyMesh.castShadow = true;
+    const crack = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8),
+      new THREE.MeshStandardMaterial({ color: 0xff5533, emissive: 0xff5533, emissiveIntensity: 1 }));
+    crack.position.set(0, 0.75, 0.5);
+    group.add(bodyMesh, crack);
+    group.position.set(x, 0, z);
+    scene.add(group);
+    return { group, bodyMesh, kind: 'mutant', hp: 35, maxHp: 35, active: false, dead: false, attackCooldown: 0, hitFlashTimer: 0, bobPhase: Math.random() * Math.PI * 2 };
+  }
+  function fireProjectile(from, toX, toZ) {
+    Engine.audio.sfx.gunshot();
+    const proj = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8),
+      new THREE.MeshStandardMaterial({ color: 0xff4433, emissive: 0xff4433, emissiveIntensity: 1 }));
+    proj.position.set(from.x, 1.0, from.z);
+    scene.add(proj);
+    const dx = toX - from.x, dz = toZ - from.z;
+    const dist = Math.hypot(dx, dz) || 0.001;
+    projectiles.push({ mesh: proj, vx: (dx / dist) * 9, vz: (dz / dist) * 9, life: 3 });
+  }
+
+  /* ---- Trial 1: Strength (3-wave gauntlet) ---- */
+  const TRIAL_CENTER = { x: 0, z: -28 };
+  const TRIAL_WAVES = [2, 3, 4];
+  function startTrial() {
+    if (wst.trialActive || wst.trialComplete) return;
+    wst.trialActive = true;
+    wst.trialWave = 1;
+    document.getElementById('trialBadge').style.display = 'block';
+    let line = "So. You want to see what strength is worth here. Prove it — three waves, no mercy from me.";
+    if (flags().rivalPath === 'hostile') {
+      line = "You already answered force with force once, against your own kind. Let's see if it still serves you here — three waves, no mercy from me.";
+    } else if (flags().rivalPath === 'truce') {
+      line = "You found another way, once, when force was the easy answer. This trial has no other way. Three waves. Show me you still remember how to fight when you must.";
     }
+    say(line);
+    setTimeout(spawnTrialWave, 2200);
+  }
+  function spawnTrialWave() {
+    const count = TRIAL_WAVES[wst.trialWave - 1];
+    document.getElementById('trialBadge').textContent = `TRIAL OF STRENGTH — Wave ${wst.trialWave}/${TRIAL_WAVES.length}`;
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2;
+      const isGuardian = i % 2 === 0 && wst.trialWave > 1;
+      const x = TRIAL_CENTER.x + Math.cos(angle) * 7;
+      const z = TRIAL_CENTER.z + Math.sin(angle) * 7;
+      const e = isGuardian ? makeGuardian(x, z) : makeMutant(x, z);
+      e.active = true;
+      e.trialUnit = true;
+      trialEnemies.push(e);
+      enemies.push(e);
+    }
+  }
+  function checkTrialWaveClear() {
+    if (!wst.trialActive) return;
+    const remaining = trialEnemies.filter((e) => !e.dead);
+    if (remaining.length > 0) return;
+    trialEnemies.length = 0;
+    if (wst.trialWave >= TRIAL_WAVES.length) {
+      wst.trialActive = false;
+      wst.trialComplete = true;
+      document.getElementById('trialBadge').style.display = 'none';
+      document.getElementById('trialCompleteOverlay').style.display = 'flex';
+      Engine.choicelog.addLore('trial_strength', 'Trial of Strength', 'Three waves answered with force. Ashketh watched, unimpressed and satisfied at once.');
+    } else {
+      wst.trialWave += 1;
+      document.getElementById('trialBadge').textContent = `Wave ${wst.trialWave - 1} cleared — next wave incoming...`;
+      setTimeout(spawnTrialWave, 2000);
+    }
+  }
+
+  /* ---- Trial 2: Restraint (reach the altar without striking back) ---- */
+  const TRIAL2 = { entranceZ: 37, altarZ: 49, x: 0, wallXOffset: 5 };
+  function makeProvoker(x, z) {
+    const group = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55, 1),
+      new THREE.MeshStandardMaterial({ color: 0x4a4a52, flatShading: true, emissive: 0x000000 }));
+    body.position.y = 0.6;
+    body.castShadow = true;
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 8),
+      new THREE.MeshStandardMaterial({ color: 0xffb84d, emissive: 0xffb84d, emissiveIntensity: 0.9 }));
+    core.position.set(0, 0.75, 0.45);
+    group.add(body, core);
+    group.position.set(x, 0, z);
+    group.userData.homeX = x;
+    group.userData.homeZ = z;
+    group.userData.lungeCooldown = Math.random() * 1.5;
+    group.userData.lungeT = 0;
+    scene.add(group);
+    return group;
+  }
+  function startTrial2() {
+    if (wst.trial2Active || wst.trial2Complete) return;
+    wst.trial2Active = true;
+    document.getElementById('trialBadge').style.display = 'block';
+    document.getElementById('trialBadge').textContent = 'TRIAL OF RESTRAINT — reach the altar';
+    let line = "They will strike at you. They cannot truly harm you. Reach the altar without answering violence with violence.";
+    if (flags().reyesPath === 'confronted') {
+      line = "You could not wait for your pilot's truth in its own time — you pressed for it. Let's see if you've learned patience since. They will strike at you. Reach the altar without answering.";
+    } else if (flags().reyesPath === 'patient') {
+      line = "You let your pilot carry his own truth at his own pace, once. That was restraint, freely given. This trial only asks you to give it again. Reach the altar without answering violence with violence.";
+    }
+    say(line);
+  }
+  function failTrial2() {
+    if (!wst.trial2Active) return;
+    wst.trial2Active = false;
+    document.getElementById('trialBadge').style.display = 'none';
+    say("You struck back. Understandable. Insufficient. Return to the gate and try again.");
+    player.position.set(TRIAL2.x, 0, TRIAL2.entranceZ - 3);
+  }
+  function updateProvokers(dt) {
+    provokers.forEach((p) => {
+      const dx = player.position.x - p.position.x;
+      const dz = player.position.z - p.position.z;
+      const dist = Math.hypot(dx, dz);
+      p.userData.lungeCooldown -= dt;
+      if (p.userData.lungeT > 0) {
+        p.userData.lungeT -= dt;
+        const t = p.userData.lungeT / 0.35;
+        p.position.x = p.userData.homeX + (dx / (dist || 1)) * 0.6 * Math.sin(t * Math.PI);
+        p.position.z = p.userData.homeZ + (dz / (dist || 1)) * 0.6 * Math.sin(t * Math.PI);
+      } else {
+        p.position.x = p.userData.homeX;
+        p.position.z = p.userData.homeZ;
+        if (dist < 3 && p.userData.lungeCooldown <= 0 && wst.trial2Active) {
+          p.userData.lungeT = 0.35;
+          p.userData.lungeCooldown = 1.8 + Math.random();
+          // a harmless jolt — no HP loss, just a jarring nudge to sell the provocation
+          if (dist < 1.4) Engine.player.shake(0.09, 0.15);
+        }
+      }
+      p.rotation.y += dt * 1.5;
+    });
+  }
+
+  /* ---- Trial 3: Cooperation (Warden Fragment + dual beacons) ---- */
+  const TRIAL3 = { x: 34, z: 0, beaconAX: 34, beaconAZ: -8, beaconBX: 34, beaconBZ: 8, entranceX: 22, entranceZ: 0 };
+  const TRIAL3_HOLD_NEEDED = 2.5;
+  function makeBeacon(x, z) {
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.3, 0.25, 16),
+      new THREE.MeshStandardMaterial({ color: 0x232a34, metalness: 0.4, roughness: 0.5 }));
+    base.position.set(x, 0.12, z);
+    base.castShadow = true;
+    const core = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.9, 10),
+      new THREE.MeshStandardMaterial({ color: 0x2a323e, emissive: 0x2a8fae, emissiveIntensity: 0.3 }));
+    core.position.set(x, 0.7, z);
+    scene.add(base, core);
+    return { base, core, x, z, active: false };
+  }
+  function makeWardenFragment(x, z) {
+    const group = new THREE.Group();
+    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.32, 1),
+      new THREE.MeshStandardMaterial({ color: 0xcfe8ff, emissive: 0x8fd0e8, emissiveIntensity: 0.7, flatShading: true }));
+    core.position.y = 0.9;
+    core.castShadow = true;
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.03, 6, 16),
+      new THREE.MeshStandardMaterial({ color: 0x8fd0e8, emissive: 0x8fd0e8, emissiveIntensity: 0.8 }));
+    ring.position.y = 0.9;
+    ring.rotation.x = Math.PI / 3;
+    group.add(core, ring);
+    group.position.set(x, 0, z);
+    scene.add(group);
+    return { group, core, ring, state: 'idle', bobPhase: 0, hp: 999, dead: false, hitFlashTimer: 0, heldBeacon: null };
+  }
+  function startTrial3() {
+    if (wst.trial3Active || wst.trial3Complete) return;
+    wst.trial3Active = true;
+    document.getElementById('trialBadge').style.display = 'block';
+    document.getElementById('trialBadge').textContent = 'TRIAL OF COOPERATION — signal the Warden Fragment';
+    let line = "This gate answers to neither blade nor stillness. It answers to trust. Something here will help you — if you ask it to, and if you keep faith with it.";
+    if (flags().oseiChoice === 'discovery_suppress') {
+      line = "Your scientist found the truth of me, and you kept it from your own people. A private burden, carried alone. This gate does not open for those who carry everything alone. Something here will help you — if you let it.";
+    } else if (flags().oseiChoice === 'discovery_share') {
+      line = "You told your colony the truth of me, when silence would have been easier. You already know something is easier to carry with others. This gate simply asks you to prove it. Something here will help you — if you ask.";
+    }
+    say(line);
+  }
+  function signalWardenFragment() {
+    Engine.audio.sfx.blip();
+    const wf = wardenFragment;
+    if (wf.state === 'idle') {
+      wf.state = 'following';
+      say("The Fragment will follow. Lead it to a beacon, and ask it to hold. Then find your own.");
+    } else if (wf.state === 'following') {
+      const dA = Math.hypot(wf.group.position.x - beaconA.x, wf.group.position.z - beaconA.z);
+      const dB = Math.hypot(wf.group.position.x - beaconB.x, wf.group.position.z - beaconB.z);
+      if (dA < 2.5 || dB < 2.5) {
+        wf.state = 'holding';
+        wf.heldBeacon = dA < dB ? beaconA : beaconB;
+        say("It holds. Now — the other beacon is yours.");
+      } else {
+        say("It isn't close enough to a beacon yet. Guide it nearer, then signal again.");
+      }
+    } else if (wf.state === 'holding') {
+      wf.state = 'following';
+      wf.heldBeacon = null;
+      say("Released. It will follow you again.");
+    }
+  }
+  function failTrial3() {
+    if (!wst.trial3Active) return;
+    wst.trial3Active = false;
+    wst.trial3HoldTimer = 0;
+    wardenFragment.state = 'idle';
+    wardenFragment.heldBeacon = null;
+    document.getElementById('trialBadge').style.display = 'none';
+    document.getElementById('trial3FailOverlay').style.display = 'flex';
+  }
+  function updateWardenFragment(dt) {
+    const wf = wardenFragment;
+    wf.bobPhase += dt * 2;
+    wf.core.position.y = 0.9 + Math.sin(wf.bobPhase) * 0.06;
+    wf.ring.rotation.z += dt * 1.2;
+    if (wf.hitFlashTimer > 0) {
+      wf.hitFlashTimer -= dt;
+      wf.core.material.emissiveIntensity = 1.6;
+    } else {
+      wf.core.material.emissiveIntensity = 0.7;
+    }
+    if (wf.state === 'following') {
+      const dx = player.position.x - wf.group.position.x;
+      const dz = player.position.z - wf.group.position.z - 1.8;
+      const dist = Math.hypot(dx, dz);
+      if (dist > 0.3) {
+        wf.group.position.x += (dx / dist) * 2.6 * dt;
+        wf.group.position.z += (dz / dist) * 2.6 * dt;
+      }
+    }
+    beaconA.active = wf.heldBeacon === beaconA;
+    beaconB.active = wf.heldBeacon === beaconB;
+    const dxA = player.position.x - beaconA.x, dzA = player.position.z - beaconA.z;
+    const dxB = player.position.x - beaconB.x, dzB = player.position.z - beaconB.z;
+    const playerOnA = (dxA * dxA + dzA * dzA) < 4;
+    const playerOnB = (dxB * dxB + dzB * dzB) < 4;
+    const playerHoldingOther = (playerOnA && wf.heldBeacon === beaconB) || (playerOnB && wf.heldBeacon === beaconA);
+    [beaconA, beaconB].forEach((b) => {
+      const lit = b.active || (b === beaconA && playerOnA) || (b === beaconB && playerOnB);
+      b.core.material.emissiveIntensity = lit ? 1.1 : 0.3;
+      b.core.material.emissive.setHex(lit ? 0x6fe0c5 : 0x2a8fae);
+    });
+    if (wst.trial3Active && playerHoldingOther) {
+      wst.trial3HoldTimer += dt;
+      document.getElementById('trialBadge').textContent =
+        `TRIAL OF COOPERATION — holding... ${Math.max(0, TRIAL3_HOLD_NEEDED - wst.trial3HoldTimer).toFixed(1)}s`;
+      if (wst.trial3HoldTimer >= TRIAL3_HOLD_NEEDED) {
+        wst.trial3Active = false;
+        wst.trial3Complete = true;
+        document.getElementById('trialBadge').style.display = 'none';
+        document.getElementById('trial3CompleteOverlay').style.display = 'flex';
+        Engine.choicelog.addLore('trial_cooperation', 'Trial of Cooperation', 'Two beacons held at once — one by the Commander, one by something that chose to trust them.');
+      }
+    } else if (wst.trial3Active) {
+      wst.trial3HoldTimer = Math.max(0, wst.trial3HoldTimer - dt * 2);
+    }
+    const dxW = player.position.x - wf.group.position.x, dzW = player.position.z - wf.group.position.z;
+    nearWardenFragment = (dxW * dxW + dzW * dzW) < 6.25 && wst.trial3Active;
+  }
+
+  /* ---- the Threshold — tiered ending from live flags ---- */
+  function checkThresholdGate() {
+    if (wst.thresholdTriggered) return;
+    if (!(wst.trialComplete && wst.trial2Complete && wst.trial3Complete)) return;
+    wst.thresholdTriggered = true;
+    const f = flags();
+    let trustScore = 0;
+    if (f.rivalPath === 'truce') trustScore++;
+    if (f.oseiChoice === 'discovery_share') trustScore++;
+    if (f.reyesPath === 'patient') trustScore++;
+    let title = 'BEYOND THE HOLLOW', text;
+    if (trustScore >= 3) {
+      text = "You did not do this alone, and you never pretended to. You gave Reyes room for his own truth, offered the rival faction a hand instead of a blade, and told your colony what you found instead of carrying it alone. Ashketh has no answer for a commander who never needed to stand apart from their people — only respect.";
+    } else if (trustScore === 2) {
+      text = "You did not do this alone, and you never pretended to. Reyes flies again because you let him help. Osei's colony still stands, whole and told the truth. Even here, at the edge of everything, that held. Ashketh has no answer for a commander who mostly chose to trust — only respect.";
+    } else if (trustScore === 1) {
+      text = "Some doors you opened together. Others you kept closed, for reasons that felt like protection at the time. Ashketh measures both kinds of strength the same way — what matters is that you kept choosing, all the way to the threshold. Kessa's Reach is still waiting for you, changed by what you decided there.";
+    } else {
+      text = "You carried this alone. The rival you answered with force instead of trust; the truth you kept instead of shared. It cost you something — Ashketh can see that plainly. But you are still standing at the threshold, unbroken, having made it here on terms no one else set for you. That is its own kind of answer.";
+    }
+    Engine.choicelog.record('decision_threshold', 'The Threshold',
+      trustScore >= 2 ? 'Passed — Ashketh measured a commander who chose trust.' :
+      trustScore === 1 ? 'Passed — some doors opened together, some stayed closed.' :
+      'Passed — alone, unbroken, on your own terms.');
+    const overlay = document.getElementById('thresholdGateOverlay');
+    const line = document.getElementById('thresholdLine');
+    const final = document.getElementById('thresholdFinal');
+    overlay.style.display = 'flex';
+    requestAnimationFrame(() => { overlay.style.background = 'rgba(4,2,10,0.92)'; });
+    const lines = [
+      "The beacons dim behind you. The gate you opened — together — was never meant to open by force.",
+      "ASHKETH: \"Three trials. Three answers. Not the ones I expected from your kind, Commander.\"",
+      "ASHKETH: \"Strength, stillness, trust — you did not choose one and abandon the others. You held all three.\"",
+      "ASHKETH: \"That is the measure I was built to take. You have passed it.\""
+    ];
+    let i = 0;
+    function showNext() {
+      line.style.opacity = '0';
+      setTimeout(() => {
+        if (i < lines.length) {
+          line.textContent = lines[i];
+          line.style.opacity = '1';
+          i++;
+          setTimeout(showNext, 3000);
+        } else {
+          document.getElementById('thresholdTitle').textContent = title;
+          document.getElementById('thresholdEndingText').textContent = text;
+          final.style.display = 'block';
+          requestAnimationFrame(() => { final.style.opacity = '1'; });
+        }
+      }, 400);
+    }
+    showNext();
+  }
+
+  /* ---- footholds (instant-construct waypoint + repair) ---- */
+  const FOOTHOLD_DEFS = {
+    waypoint: { name: 'Waypoint Beacon', color: 0x6fd0e0 },
+    repair: { name: 'Repair Station', color: 0x6fe0a0 },
+  };
+  const footholds = [
+    { id: 'fh_entrance', type: 'waypoint', x: 8, z: -10, built: false, group: null },
+    { id: 'fh_mid', type: 'repair', x: 16, z: 22, built: false, group: null },
+  ];
+  function makeFootholdPad(fh) {
+    const group = new THREE.Group();
+    const pad = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.8, 0.18, 12),
+      new THREE.MeshStandardMaterial({ color: 0x2a323e, metalness: 0.4, roughness: 0.5 }));
+    pad.position.y = 0.09;
+    pad.castShadow = true;
+    const ringMat = new THREE.MeshStandardMaterial({ color: 0x3a4450, emissive: 0x2a8fae, emissiveIntensity: 0.25 });
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.05, 6, 20), ringMat);
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = 0.2;
+    group.add(pad, ring);
+    group.position.set(fh.x, 0, fh.z);
+    group.userData.ringMat = ringMat;
+    scene.add(group);
+    return group;
+  }
+  function constructFoothold(fh) {
+    fh.built = true;
+    Engine.audio.sfx.build();
+    const def = FOOTHOLD_DEFS[fh.type];
+    fh.group.userData.ringMat.emissive.setHex(def.color);
+    fh.group.userData.ringMat.emissiveIntensity = 0.9;
+    const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.2, 1.6, 8),
+      new THREE.MeshStandardMaterial({ color: 0x2a323e, emissive: def.color, emissiveIntensity: 0.8 }));
+    beacon.position.y = 0.9;
+    fh.group.add(beacon);
+    say(`${def.name} secured. This ground is yours now.`, 3200);
+  }
+  function updateFootholds(dt) {
+    nearFoothold = null;
+    footholds.forEach((fh) => {
+      const dx = player.position.x - fh.x, dz = player.position.z - fh.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist < 3) nearFoothold = fh;
+      // Repair Station: passive HP regen aura once built
+      if (fh.built && fh.type === 'repair' && dist < 3.5 && !Engine.state.isDead && Engine.state.hp < Engine.state.maxHp) {
+        Engine.state.hp = Math.min(Engine.state.maxHp, Engine.state.hp + 8 * dt);
+      }
+    });
+  }
+  function interactFoothold() {
+    if (!nearFoothold) return false;
+    if (!nearFoothold.built) { constructFoothold(nearFoothold); return true; }
+    if (nearFoothold.type === 'waypoint') {
+      const otherBeacon = footholds.find((f) => f.built && f.type === 'waypoint' && f !== nearFoothold);
+      if (otherBeacon) {
+        Engine.audio.sfx.beacon();
+        player.position.set(otherBeacon.x, 0, otherBeacon.z + 2.5);
+        say('Waypoint link engaged.', 2000);
+      } else {
+        Engine.audio.sfx.blip();
+        Engine.state.stamina = Engine.state.maxStamina;
+        say('No second beacon built yet — stamina restored in the meantime.', 2600);
+      }
+      return true;
+    }
+    if (nearFoothold.type === 'repair') {
+      Engine.audio.sfx.beacon();
+      Engine.state.hp = Engine.state.maxHp;
+      say('Repair Station: fully restored.', 2000);
+      return true;
+    }
+    return false;
+  }
+
+  /* ---- Ashketh musings (static pool + optional live line, silent fallback) ---- */
+  const ASHKETH_STATIC_MUSINGS = [
+    "The Architects built to outlast themselves. They did not.",
+    "Strength without restraint is how the Architects fell. I watch for the difference in you.",
+    "This place remembers everyone who has stood where you stand. Most did not stand long.",
+    "You carry choices from the world behind you. I have already felt their weight."
+  ];
+  async function attemptAshkethMusing() {
+    const f = flags();
+    const personality = "Ashketh, an ancient custodian AI of a long-vanished precursor civilization called the Architects. Tests newcomers for restraint, cooperation, and judgment rather than raw strength. Speaks slowly, formally, a little cryptic — never cruel, genuinely hopes visitors pass. Never breaks its measured, ancient tone.";
+    const prompt = `You are writing exactly ONE short ambient musing line for a character in an original sci-fi game called "Beyond the Hollow". Tone: epic and hopeful, never grimdark.
+
+Character: ${personality}
+
+Current context: ${f.rivalPath ? 'The player resolved a rival faction encounter as: ' + f.rivalPath + '. ' : ''}${f.oseiChoice === 'discovery_share' ? 'The player shared a discovery with their colony rather than keeping it secret. ' : ''}${f.oseiChoice === 'discovery_suppress' ? 'The player kept a discovery secret from their colony. ' : ''}Trials completed so far: strength=${wst.trialComplete}, restraint=${wst.trial2Complete}, cooperation=${wst.trial3Complete}.
+
+Write ONE fresh in-character line (max 2 sentences, plain spoken dialogue, no quotation marks needed). Do not explain yourself, do not add stage directions. Return ONLY the line itself.`;
+    try {
+      const fetchPromise = fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 100, messages: [{ role: "user", content: prompt }] })
+      });
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 6000));
+      const response = await Promise.race([fetchPromise, timeoutPromise]);
+      const data = await response.json();
+      const textBlock = (data.content || []).find((b) => b.type === 'text');
+      const line = textBlock && textBlock.text && textBlock.text.trim();
+      if (line) { say(line, 5000); return; }
+    } catch (e) { /* fall through to static pool below */ }
+    say(ASHKETH_STATIC_MUSINGS[Math.floor(Math.random() * ASHKETH_STATIC_MUSINGS.length)], 5000);
+  }
+
+  /* ---- proximity + prompts ---- */
+  function updateProximity() {
+    const promptEl = document.getElementById('prompt');
+    const dxT = player.position.x - TRIAL_CENTER.x;
+    const dzT = player.position.z - (TRIAL_CENTER.z + 12);
+    nearTrialEntrance = (dxT * dxT + dzT * dzT) < 20;
+    const dxT2 = player.position.x - TRIAL2.x;
+    const dzT2 = player.position.z - TRIAL2.entranceZ;
+    nearTrial2Entrance = (dxT2 * dxT2 + dzT2 * dzT2) < 9;
+    const dxT3 = player.position.x - TRIAL3.entranceX;
+    const dzT3 = player.position.z - TRIAL3.entranceZ;
+    nearTrial3Entrance = (dxT3 * dxT3 + dzT3 * dzT3) < 9;
+    // Trial of Restraint success — reaching the altar
+    if (wst.trial2Active) {
+      const dxA = player.position.x - TRIAL2.x;
+      const dzA = player.position.z - TRIAL2.altarZ;
+      if (dxA * dxA + dzA * dzA < 4) {
+        wst.trial2Active = false;
+        wst.trial2Complete = true;
+        document.getElementById('trialBadge').style.display = 'none';
+        document.getElementById('trial2CompleteOverlay').style.display = 'flex';
+        Engine.choicelog.addLore('trial_restraint', 'Trial of Restraint', 'Struck at, and never striking back — the altar was reached with empty hands.');
+      }
+    }
+    let text = null;
+    if (nearTrialEntrance && !wst.trialActive && !wst.trialComplete) text = 'Press E — Enter the Trial of Strength';
+    else if (nearTrial2Entrance && !wst.trial2Active && !wst.trial2Complete) text = 'Press E — Enter the Trial of Restraint';
+    else if (nearTrial3Entrance && !wst.trial3Active && !wst.trial3Complete) text = 'Press E — Enter the Trial of Cooperation';
+    else if (nearWardenFragment) {
+      text = wardenFragment.state === 'idle'
+        ? 'Press E — Signal the Warden Fragment'
+        : wardenFragment.state === 'following'
+          ? 'Press E — Command it to hold this beacon'
+          : 'Press E — Release the Warden Fragment';
+    } else if (nearFoothold) {
+      if (!nearFoothold.built) text = `Press E — Build ${FOOTHOLD_DEFS[nearFoothold.type].name}`;
+      else if (nearFoothold.type === 'waypoint') text = 'Press E — Use Waypoint Beacon';
+      else text = 'Press E — Use Repair Station';
+    }
+    if (text) { promptEl.classList.add('show'); promptEl.textContent = text; }
+    else promptEl.classList.remove('show');
+  }
+
+  /* ---- enemy + projectile update ---- */
+  function updateEnemies(dt) {
+    enemies.forEach((en) => {
+      if (en.dead) {
+        en.group.scale.multiplyScalar(Math.max(0, 1 - dt * 4));
+        if (en.group.scale.x < 0.02) en.group.visible = false;
+        return;
+      }
+      if (!en.active) return;
+      const flashMat = en.kind === 'guardian' ? en.eye.material : en.bodyMesh.material;
+      if (en.hitFlashTimer > 0) { en.hitFlashTimer -= dt; flashMat.emissiveIntensity = 1.6; }
+      else flashMat.emissiveIntensity = 1;
+      const dx = player.position.x - en.group.position.x;
+      const dz = player.position.z - en.group.position.z;
+      const dist = Math.hypot(dx, dz);
+      if (en.kind === 'guardian') {
+        en.group.rotation.y = Math.atan2(dx, dz);
+        if (en.fireCooldown > 0) en.fireCooldown -= dt;
+        if (dist < 16 && dist > 1.5 && en.fireCooldown <= 0 && !Engine.state.isDead) {
+          fireProjectile(en.group.position, player.position.x, player.position.z);
+          en.fireCooldown = 1.6;
+        }
+      } else {
+        en.bobPhase += dt * 8;
+        const pulse = 1 + Math.sin(en.bobPhase) * 0.05;
+        en.bodyMesh.scale.set(pulse, pulse, pulse);
+        if (dist > 1.5) {
+          en.group.position.x += (dx / dist) * 3.2 * dt;
+          en.group.position.z += (dz / dist) * 3.2 * dt;
+          en.group.rotation.y = Math.atan2(dx, dz);
+        } else if (en.attackCooldown <= 0 && !Engine.state.isDead) {
+          Engine.player.hurt(9);
+          en.attackCooldown = 1.0;
+        }
+        if (en.attackCooldown > 0) en.attackCooldown -= dt;
+      }
+    });
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+      const p = projectiles[i];
+      p.mesh.position.x += p.vx * dt;
+      p.mesh.position.z += p.vz * dt;
+      p.life -= dt;
+      const dx = p.mesh.position.x - player.position.x;
+      const dz = p.mesh.position.z - player.position.z;
+      if (Math.hypot(dx, dz) < 0.8 && !Engine.state.isDead) {
+        Engine.player.hurt(12);
+        scene.remove(p.mesh);
+        projectiles.splice(i, 1);
+        continue;
+      }
+      if (p.life <= 0) { scene.remove(p.mesh); projectiles.splice(i, 1); }
+    }
+    checkTrialWaveClear();
+  }
+
+  /* ---- GPU point-sprite ambient particles (keep — perf-tested approach) ---- */
+  function buildAmbientParticles() {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const ctx = c.getContext('2d');
+    const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, 64, 64);
+    const positions = new Float32Array(AMBIENT_COUNT * 3);
+    for (let i = 0; i < AMBIENT_COUNT; i++) {
+      const angle = Math.random() * Math.PI * 2, dist = Math.random() * 45;
+      positions[i * 3] = Math.cos(angle) * dist;
+      positions[i * 3 + 1] = Math.random() * 6 + 0.2;
+      positions[i * 3 + 2] = Math.sin(angle) * dist;
+    }
+    ambientGeo = new THREE.BufferGeometry();
+    ambientGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    ambientPoints = new THREE.Points(ambientGeo, new THREE.PointsMaterial({
+      color: 0x8fd0e8, size: 0.09, map: new THREE.CanvasTexture(c), transparent: true, opacity: 0.5,
+      depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true,
+    }));
+    scene.add(ambientPoints);
+  }
+  function updateAmbientParticles(dt) {
+    const pos = ambientGeo.attributes.position.array;
+    for (let i = 0; i < AMBIENT_COUNT; i++) {
+      pos[i * 3 + 1] += 0.22 * dt;
+      if (pos[i * 3 + 1] > 7) {
+        pos[i * 3 + 1] = 0.1;
+        const angle = Math.random() * Math.PI * 2, dist = Math.random() * 45;
+        pos[i * 3] = player.position.x + Math.cos(angle) * dist;
+        pos[i * 3 + 2] = player.position.z + Math.sin(angle) * dist;
+      }
+    }
+    ambientGeo.attributes.position.needsUpdate = true;
+  }
+
+  function build() {
+    // cold, mechanical lighting
+    scene.add(new THREE.HemisphereLight(0x3a5a6a, 0x0a0a12, 0.5));
+    keyLight = new THREE.DirectionalLight(0x8fd0e8, 0.8);
+    keyLight.position.set(20, 30, 10);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.set(1024, 1024);
+    keyLight.shadow.camera.left = -40; keyLight.shadow.camera.right = 40;
+    keyLight.shadow.camera.top = 40; keyLight.shadow.camera.bottom = -40;
+    scene.add(keyLight); scene.add(keyLight.target);
+    // ring-world floor + circuit glow lines
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(120, 120, 1, 1),
+      new THREE.MeshStandardMaterial({ color: 0x1c222c, metalness: 0.4, roughness: 0.6 }));
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    scene.add(floor);
+    for (let i = 0; i < 10; i++) {
+      const angle = (i / 10) * Math.PI * 2;
+      addFloorGlowLine(Math.cos(angle) * 18, Math.sin(angle) * 18, 0.15, 30, angle);
+    }
+    // structural pillars + debris
+    for (let i = 0; i < 12; i++) {
+      const angle = (i / 12) * Math.PI * 2 + 0.15;
+      const dist = 22 + (i % 3) * 6;
+      addPillar(Math.cos(angle) * dist, Math.sin(angle) * dist, 5 + Math.random() * 3);
+    }
+    for (let i = 0; i < 16; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 6 + Math.random() * 30;
+      addDebris(Math.cos(angle) * dist, Math.sin(angle) * dist);
+    }
+    // Trial 1 arena
+    const trialFloor = new THREE.Mesh(new THREE.CircleGeometry(10, 32),
+      new THREE.MeshStandardMaterial({ color: 0x161c24, metalness: 0.3, roughness: 0.6 }));
+    trialFloor.rotation.x = -Math.PI / 2;
+    trialFloor.position.set(TRIAL_CENTER.x, 0.03, TRIAL_CENTER.z);
+    scene.add(trialFloor);
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2;
+      addPillar(TRIAL_CENTER.x + Math.cos(angle) * 10, TRIAL_CENTER.z + Math.sin(angle) * 10, 6);
+    }
+    // Trial 2 corridor: walls, entrance ring, altar, provokers
+    for (let z = 34; z <= 51; z += 2.2) {
+      addWallSegment(TRIAL2.x - TRIAL2.wallXOffset, z);
+      addWallSegment(TRIAL2.x + TRIAL2.wallXOffset, z);
+    }
+    const entranceMarker = new THREE.Mesh(new THREE.TorusGeometry(2, 0.12, 8, 20),
+      new THREE.MeshStandardMaterial({ color: 0x6fd0e0, emissive: 0x6fd0e0, emissiveIntensity: 0.6 }));
+    entranceMarker.position.set(TRIAL2.x, 1.6, TRIAL2.entranceZ);
+    entranceMarker.rotation.x = Math.PI / 2;
+    scene.add(entranceMarker);
+    const altar = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.1, 1.2, 8),
+      new THREE.MeshStandardMaterial({ color: 0x2a323e, emissive: 0xb48ff0, emissiveIntensity: 0.4, flatShading: true }));
+    altar.position.set(TRIAL2.x, 0.6, TRIAL2.altarZ);
+    altar.castShadow = true;
+    scene.add(altar);
+    provokers.push(makeProvoker(-1.5, 40), makeProvoker(1.8, 43), makeProvoker(-1.2, 46));
+    // Trial 3 chamber: arena, entrance ring, beacons, Warden Fragment
+    const trial3Floor = new THREE.Mesh(new THREE.CircleGeometry(14, 32),
+      new THREE.MeshStandardMaterial({ color: 0x161c24, metalness: 0.3, roughness: 0.6 }));
+    trial3Floor.rotation.x = -Math.PI / 2;
+    trial3Floor.position.set(TRIAL3.x, 0.03, TRIAL3.z);
+    scene.add(trial3Floor);
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2;
+      addPillar(TRIAL3.x + Math.cos(angle) * 13, TRIAL3.z + Math.sin(angle) * 13, 6);
+    }
+    const trial3EntranceMarker = new THREE.Mesh(new THREE.TorusGeometry(2, 0.12, 8, 20),
+      new THREE.MeshStandardMaterial({ color: 0x6fd0e0, emissive: 0x6fd0e0, emissiveIntensity: 0.6 }));
+    trial3EntranceMarker.position.set(TRIAL3.entranceX, 1.6, TRIAL3.entranceZ);
+    trial3EntranceMarker.rotation.z = Math.PI / 2;
+    scene.add(trial3EntranceMarker);
+    beaconA = makeBeacon(TRIAL3.beaconAX, TRIAL3.beaconAZ);
+    beaconB = makeBeacon(TRIAL3.beaconBX, TRIAL3.beaconBZ);
+    wardenFragment = makeWardenFragment(TRIAL3.entranceX + 2, TRIAL3.entranceZ + 2);
+    // footholds
+    footholds.forEach((fh) => { fh.group = makeFootholdPad(fh); });
+    // ambient roamers: the structure feels inhabited
+    for (let i = 0; i < 4; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 12 + Math.random() * 15;
+      const m = makeMutant(Math.cos(angle) * dist, Math.sin(angle) * dist);
+      m.active = true;
+      enemies.push(m);
+    }
+    for (let i = 0; i < 3; i++) {
+      const angle = (i / 3) * Math.PI * 2 + 1;
+      const g = makeGuardian(Math.cos(angle) * 20, Math.sin(angle) * 20);
+      g.active = true;
+      enemies.push(g);
+    }
+    // GPU ambient particles
+    buildAmbientParticles();
+    // player (shared rig, carried appearance)
     playerParts = Engine.rig.makeHumanoidParts(0x4f8ff0, { legColor: 0x262b35 });
-    player = playerParts.group; scene.add(player);
+    player = playerParts.group;
+    player.position.set(0, 0, 5);
+    scene.add(player);
     Engine.rig.applyCharacterConfig(playerParts).then((sz) => player.scale.setScalar(sz));
-    spawnDummy(-6, -6);
-    // (no need to assign WorldB.player/scene — exposed via getter + property below)
+    // trial overlay wiring
+    document.getElementById('btnContinueAfterTrial').onclick = () => {
+      document.getElementById('trialCompleteOverlay').style.display = 'none';
+      say("Strength, you have. Whether you have the rest remains to be seen.");
+    };
+    document.getElementById('btnContinueAfterTrial2').onclick = () => {
+      document.getElementById('trial2CompleteOverlay').style.display = 'none';
+      say("Two answers given. One more waits to the east — and this one, you cannot pass alone.");
+    };
+    document.getElementById('btnContinueAfterTrial3').onclick = () => {
+      document.getElementById('trial3CompleteOverlay').style.display = 'none';
+      say("Three answers given: force, stillness, trust. None of them wrong. All of them you.");
+      checkThresholdGate();
+    };
+    document.getElementById('btnRetryTrial3').onclick = () => {
+      document.getElementById('trial3FailOverlay').style.display = 'none';
+      wardenFragment.group.position.set(TRIAL3.entranceX + 2, 0, TRIAL3.entranceZ + 2);
+      player.position.set(TRIAL3.entranceX - 4, 0, TRIAL3.entranceZ);
+    };
+    document.getElementById('btnEndingRestart').onclick = () => {
+      document.getElementById('thresholdGateOverlay').style.display = 'none';
+    };
   }
-  function spawnDummy(x, z) {
-    const g = Engine.rig.makeHumanoidParts(0x8fd0ff).group;
-    g.position.set(x, 0, z); g.scale.setScalar(0.95); scene.add(g);
-    enemies.push({ group: g, hp: 60, dead: false });
+
+  function enter() {
+    // arriving through the summon: the Verge is harsher — tighter HP pool
+    Object.assign(Engine.state, { maxHp: 100, hp: 100, stamina: Engine.state.maxStamina });
+    document.getElementById('enemyHpBox').style.display = 'none';
+    say('You reached my threshold. Few do. Fewer still deserve to leave it.', 5000);
   }
-  function enter() { Engine.ashketh.say('You stand at the threshold, Commander. Be measured.', 3800); }
-  function getTargets() { return enemies; }
-  function onKill() { Engine.ashketh.say('Strength, then. But strength was never the question.', 3000); }
+  function exit() {
+    document.getElementById('prompt').classList.remove('show');
+    document.getElementById('trialBadge').style.display = 'none';
+  }
+  function getCombatTargets() {
+    const targets = [];
+    enemies.forEach((en) => { if (!en.dead && en.active) targets.push({ kind: en.kind, ref: en, position: en.group.position }); });
+    return targets;
+  }
+  // ANY attack during Restraint fails it; striking the Warden fails Cooperation.
+  function interceptAttack() {
+    if (wst.trial2Active) { failTrial2(); return true; }
+    if (wst.trial3Active && nearWardenFragment) {
+      wardenFragment.hitFlashTimer = 0.2;
+      failTrial3();
+      return true;
+    }
+    return false;
+  }
+  function onDeath() {
+    setTimeout(() => { document.getElementById('gameOverOverlay').style.display = 'flex'; }, 900);
+  }
+  function onRespawn() {
+    Engine.state.hp = Engine.state.maxHp;
+    Engine.state.stamina = Engine.state.maxStamina;
+    Engine.state.isDead = false;
+    Engine.player.revive();
+    // retry: return to just outside the trial entrance, no permanent penalty
+    if (wst.trialActive) player.position.set(TRIAL_CENTER.x, 0, TRIAL_CENTER.z + 14);
+    else player.position.set(0, 0, 5);
+    document.getElementById('gameOverOverlay').style.display = 'none';
+  }
+  function onInteract() {
+    if (Engine.state.isDead) return;
+    if (nearTrialEntrance && !wst.trialActive && !wst.trialComplete) { startTrial(); return; }
+    if (nearTrial2Entrance && !wst.trial2Active && !wst.trial2Complete) { startTrial2(); return; }
+    if (nearTrial3Entrance && !wst.trial3Active && !wst.trial3Complete) { startTrial3(); return; }
+    if (nearWardenFragment) { signalWardenFragment(); return; }
+    if (nearFoothold) interactFoothold();
+  }
   function update(dt) {
     Engine.player.update(dt);
     Engine.player.updateCamera(dt);
+    updateEnemies(dt);
+    updateProvokers(dt);
+    updateWardenFragment(dt);
+    updateFootholds(dt);
+    updateAmbientParticles(dt);
+    updateProximity();
+    // occasional Ashketh musing while exploring outside trials
+    musingTimer -= dt;
+    if (musingTimer <= 0) {
+      musingTimer = 110;
+      if (!wst.trialActive && !wst.trial2Active && !wst.trial3Active && !Engine.state.isDead) attemptAshkethMusing();
+    }
   }
-  function onInteract() {
-    Engine.choicelog.addLore('demoB_pillar', 'Architect Conduit', 'The pillar\u2019s light answers your presence. Something here has been waiting a very long time.');
-  }
-  return { id: 'hollowVerge', name: 'The Hollow Verge', scene, mood, build, enter, update, heightAt, getTargets, onKill, onInteract,
+  return { id: 'hollowVerge', name: 'The Hollow Verge', scene, mood, build, enter, exit, update, heightAt,
+    getCombatTargets, interceptAttack, onInteract, onDeath, onRespawn,
+    obstacles, bound: 55, state: wst,
     getLandmarks() { return [
-      { name: 'The Threshold', x: 0, z: -28, type: 'story' },
-      { name: 'Waypoint Beacon', x: 10, z: 6, type: 'home' },
-      { name: 'Repair Station', x: -12, z: 8, type: 'home' },
+      { name: 'Trial of Strength', x: TRIAL_CENTER.x, z: TRIAL_CENTER.z, type: 'story' },
+      { name: 'Trial of Restraint', x: TRIAL2.x, z: TRIAL2.entranceZ, type: 'story' },
+      { name: 'Trial of Cooperation', x: TRIAL3.entranceX, z: TRIAL3.entranceZ, type: 'story' },
+      { name: 'Waypoint Beacon', x: 8, z: -10, type: 'home' },
+      { name: 'Repair Station', x: 16, z: 22, type: 'home' },
     ]; },
     get player() { return player; }, get playerParts() { return playerParts; } };
 })();
@@ -2889,6 +3735,12 @@ WorldManager.register(WorldB);
         fired by Planet A's Ashketh summon at Readiness 100.               ---- */
 document.getElementById('btnWorldA').onclick = () => Engine.goto('kessasReach');
 document.getElementById('btnWorldB').onclick = () => Engine.goto('hollowVerge');
+
+/* ---- game-over Retry routes to whichever world is active ---- */
+document.getElementById('btnRespawn').onclick = () => {
+  const w = WorldManager.current;
+  if (w && w.onRespawn) w.onRespawn();
+};
 
 /* ==========================================================================
    HUD + main loop (single loop; dispatches to the active world)
