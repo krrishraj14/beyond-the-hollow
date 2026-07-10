@@ -8,7 +8,7 @@
   ============================================================================
   BEYOND THE HOLLOW — UNIFIED BUILD
   ============================================================================
-  Merge pass 1 of N: the ENGINE SHELL.
+  The unified game: both prototypes fully ported onto the Engine shell.
 
   This file replaces the old two-file setup (world_prototype.html +
   planet_b_prototype.html) that communicated only through window.storage keys.
@@ -26,7 +26,7 @@
     - WorldManager     register / goto — in-app world swap (replaces window.open)
     - Two REAL (thin) worlds proving carryover, switching, combat, settings
 
-  WHAT PORTS IN NEXT (labeled seams below, search "PORT:"):
+  PORTED CONTENT (Phases 1-5 complete):
     Planet A  -> WorldA.*  : terrain/ruins/flora, colony+build menu, resources,
                              companions+dialogue, rivals, weapons+armory, ship
                              flight, readiness, Ashketh summon (calls Engine.goto)
@@ -79,10 +79,6 @@
   .choices { display: flex; gap: 8px; flex-wrap: wrap; }
   .choice { cursor: pointer; padding: 8px 14px; font-size: 13px; border-radius: 8px; background: #161c28; border: 1px solid rgba(255,255,255,.12); }
   .choice.active { background: #2a3a5c; border-color: #6f9fe0; }
-
-  /* ---- dev world-switch (temporary; the real switch is Ashketh's summon) ---- */
-  #devSwitch { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); display: flex; gap: 8px; z-index: 20; }
-  #devSwitch .tag { align-self: center; font-size: 10px; letter-spacing: 1px; opacity: .4; text-transform: uppercase; }
 
   #ashketh { position: fixed; left: 50%; top: 26%; transform: translateX(-50%); width: min(560px,90vw); text-align: center; font-size: calc(17px * var(--text-scale,1)); line-height: 1.5; color: #cfe0ff; text-shadow: 0 0 18px rgba(90,140,255,.5); opacity: 0; transition: opacity .8s; pointer-events: none; z-index: 25; }
 
@@ -376,12 +372,6 @@
   <div class="btn" id="btnArmory">Armory</div>
   <div class="btn" id="btnLog">Log</div>
   <div class="btn" id="btnSettings">Settings</div>
-</div>
-
-<div id="devSwitch">
-  <span class="tag">dev</span>
-  <div class="btn" id="btnWorldA">Kessa's Reach</div>
-  <div class="btn" id="btnWorldB">Hollow Verge</div>
 </div>
 
 <!-- Settings panel (shared across both worlds) -->
@@ -743,6 +733,7 @@ Engine.player = (() => {
   function attach(playerMesh, activeWorld) {
     mesh = playerMesh; world = activeWorld;
     isGrounded = true; velocityY = 0; airborneOffset = 0; landSquashTimer = 0;
+    cutsceneTimer = 0;   // a cutscene never outlives its world (e.g. the summon)
   }
 
   function startCutscene(targetPos, duration) {
@@ -1337,13 +1328,13 @@ const WorldManager = (() => {
 })();
 
 /* ==========================================================================
-   WORLD A — "Kessa's Reach"  (thin proof-of-merge; content ports in next)
+   WORLD A — "Kessa's Reach" — survival, colony, companions, decisions, ship
    -------------------------------------------------------------------------
-   PORT: from world_prototype.html — grass/terrain textures, ruins cluster,
+   Ported from world_prototype.html — grass/terrain textures, ruins cluster,
    alien flora, day-night cycle, colony build menu + resources (wood/scrap),
    companions (Reyes/Osei/Kade) + dialogue trees, rival encounter, weapon
-   armory + progression, ship flight + fuel, Readiness, autosave.
-   Those systems drop into build()/update() and reuse Engine.player/audio/rig.
+   armory + progression, ship flight + fuel, Readiness, the summon.
+   All systems reuse Engine.player/audio/rig/combat.
    ========================================================================== */
 const WorldA = (() => {
   const scene = new THREE.Scene();
@@ -2874,12 +2865,12 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
 })();
 
 /* ==========================================================================
-   WORLD B — "The Hollow Verge"  (thin proof-of-merge; content ports in next)
+   WORLD B — "The Hollow Verge" — trials, footholds, choice echo, ending
    -------------------------------------------------------------------------
-   PORT: from planet_b_prototype.html — ring-world geometry + pillars/debris,
+   Ported from planet_b_prototype.html — ring-world geometry + pillars/debris,
    guardian constructs + mutants, the three Threshold trials (Strength /
-   Restraint / Cooperation), footholds, choice-echo from Planet A flags,
-   Ashketh musings, the ending sequence.
+   Restraint / Cooperation), footholds, choice-echo from live Planet A flags,
+   Ashketh musings, the four-tier ending sequence.
    ========================================================================== */
 const WorldB = (() => {
   const scene = new THREE.Scene();
@@ -3028,6 +3019,7 @@ const WorldB = (() => {
   }
   function checkTrialWaveClear() {
     if (!wst.trialActive) return;
+    if (trialEnemies.length === 0) return;   // wave not spawned yet (fixes inherited insta-complete bug)
     const remaining = trialEnemies.filter((e) => !e.dead);
     if (remaining.length > 0) return;
     trialEnemies.length = 0;
@@ -3730,11 +3722,6 @@ Write ONE fresh in-character line (max 2 sentences, plain spoken dialogue, no qu
 
 WorldManager.register(WorldA);
 WorldManager.register(WorldB);
-
-/* ---- dev world switches (temporary). Real path: Engine.goto('hollowVerge')
-        fired by Planet A's Ashketh summon at Readiness 100.               ---- */
-document.getElementById('btnWorldA').onclick = () => Engine.goto('kessasReach');
-document.getElementById('btnWorldB').onclick = () => Engine.goto('hollowVerge');
 
 /* ---- game-over Retry routes to whichever world is active ---- */
 document.getElementById('btnRespawn').onclick = () => {
