@@ -701,13 +701,15 @@ Engine.keybinds = (() => {
 Engine.input = (() => {
   const keys = {};
   let capture = null; // when set, next keydown rebinds this action instead of playing
+  // arrow keys always work for movement alongside the bound keys (both-hands play)
+  const MOVE_ALIASES = { forward: 'ArrowUp', back: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' };
   const io = { keys, look: { dx: 0, dy: 0 }, interactPressed: false, attackPressed: false, jumpPressed: false };
-  io.down = (action) => !!keys[Engine.keybinds.get(action)];
+  io.down = (action) => !!keys[Engine.keybinds.get(action)] || !!keys[MOVE_ALIASES[action]];
   io.beginCapture = (action, cb) => { capture = { action, cb }; };
   window.addEventListener('keydown', (e) => {
     if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
     if (capture) { e.preventDefault(); Engine.keybinds.set(capture.action, e.code); const cb = capture.cb; capture = null; cb && cb(); return; }
-    if (e.code === 'Space') e.preventDefault();   // don't scroll the page
+    if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();   // don't scroll the page
     keys[e.code] = true;
     if (e.code === Engine.keybinds.get('interact')) io.interactPressed = true;
     if (e.code === Engine.keybinds.get('attack')) io.attackPressed = true;
@@ -981,17 +983,40 @@ Engine.updateKbHint = (mode) => {
     return;
   }
   const L = (a) => Engine.keybinds.label(Engine.keybinds.get(a));
-  el.textContent = `${L('forward')}${L('left')}${L('back')}${L('right')} move · ${L('sprint')} sprint · ${L('jump')} jump · drag mouse to look/turn · ${L('interact')} interact · ${L('attack')} attack`;
+  el.textContent = `${L('forward')}${L('left')}${L('back')}${L('right')} / arrow keys move · ${L('sprint')} sprint · ${L('jump')} jump · drag mouse to look/turn · ${L('interact')} interact · ${L('attack')} attack`;
 };
 
 /* ---- top-center toast (weapon unlocks, ship ready, ...) ---- */
-Engine.toast = (text) => {
+Engine.toast = (text, ms) => {
   const el = document.getElementById('weaponToast');
   el.textContent = text; el.classList.add('show');
   Engine.audio.sfx.build();
   clearTimeout(Engine.toast._t);
-  Engine.toast._t = setTimeout(() => el.classList.remove('show'), 3200);
+  Engine.toast._t = setTimeout(() => el.classList.remove('show'), ms || 3200);
 };
+
+/* ==========================================================================
+   Engine.hints — gentle nudges when the player is stuck.
+   Each world passes a progress snapshot + a "what next" resolver every
+   frame; if the snapshot hasn't changed for INTERVAL seconds, the next
+   objective is surfaced as a hint toast (and repeats while still stuck).
+   ========================================================================== */
+Engine.hints = (() => {
+  let last = '', timer = 0;
+  const api = {
+    INTERVAL: 75,
+    tick(dt, snapshot, nextHint) {
+      if (snapshot !== last) { last = snapshot; timer = 0; return; }
+      timer += dt;
+      if (timer >= api.INTERVAL) {
+        timer = 0;
+        const text = nextHint();
+        if (text) Engine.toast('HINT — ' + text, 5600);
+      }
+    },
+  };
+  return api;
+})();
 
 /* ==========================================================================
    Engine.combat — full weapon dispatch, ported from world_prototype:
@@ -2983,6 +3008,12 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
     updateResourceRespawns(dt);
     updateReadinessUI();
     updateNameTags();
+    // gentle hint if story progress has stalled (not during dialogue/cutscenes)
+    if (!uiBlocked() && !Engine.player.inCutscene && !Engine.state.isDead) {
+      const f = Engine.state.flags;
+      const snap = [wst.wood + wst.scrap, wst.colonyStrength, Engine.state.kills, f.reyesPath, f.visionSeen, f.oseiDiscoveryDone, f.rivalPath, wst.shipUnlocked, wst.summoned, npcState.reyes.current, npcState.osei.current].join('|');
+      Engine.hints.tick(dt, snap, nextHint);
+    }
     // readiness-gated unlocks + ship + summon don't have a kill event \u2014 poll once a second
     unlockCheckTimer += dt;
     if (unlockCheckTimer > 1) {
@@ -2994,6 +3025,33 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
   }
   function onInteract() { tryInteract(); }
   function uiBlocked() { return wst.dialogueOpen || wst.buildMenuOpen || wst.encounterOpen; }
+
+  /* what should the player do next? (checked in story-priority order) */
+  function nextHint() {
+    const f = Engine.state.flags;
+    const r = computeReadiness();
+    if (!npcState.reyes.current && !npcState.osei.current)
+      return 'Your crew has things to say. Walk up to Reyes or Dr. Osei and press E to talk.';
+    if (wst.wood === 0 && wst.scrap === 0 && wst.colonyStrength === 0)
+      return 'The glowing spheres and shards around the colony are wood and scrap — press E near one to gather it.';
+    if (!f.reyesPath)
+      return 'Reyes is holding something back about the crash. Keep talking to him (E) until he opens up.';
+    if (!f.visionSeen)
+      return 'Dr. Osei keeps mentioning old ruins to the east. Open the Map and go take a look.';
+    if (!f.oseiDiscoveryDone)
+      return 'After what happened at the ruins, Dr. Osei has something to show you. Talk to her again.';
+    if (!f.rivalPath)
+      return 'Something is stirring at Skirmish Ridge to the west — the Map marks it. Approach carefully.';
+    if (r.colony < 100)
+      return 'Raise Colony Strength at the beacon (E near the green light). Slots are limited — Workshops and Storage Depots add the most.';
+    if (r.combat < 100)
+      return 'Skitterlings roam the wilds. Defeat a few more (F to attack) to raise your Combat readiness.';
+    if (wst.shipUnlocked && !wst.summoned)
+      return 'The ship is flyable (E near the hull to board). Push Readiness to 100% — something is waiting for you.';
+    if (!wst.summoned)
+      return 'Check the Readiness badge (click it) to see which track still needs work. At 100%, everything changes.';
+    return null;
+  }
   function talking() { return wst.dialogueOpen; }
   return { id: 'kessasReach', name: "Kessa's Reach", scene, mood, build, enter, exit, update, heightAt,
     getTargets, getCombatTargets, onInteract, onLand, onDeath, onRespawn, uiBlocked, talking,
@@ -3867,6 +3925,23 @@ Write ONE fresh in-character line (max 2 sentences, plain spoken dialogue, no qu
     if (nearWardenFragment) { signalWardenFragment(); return; }
     if (nearFoothold) interactFoothold();
   }
+
+  /* what should the player do next? (trials in story order) */
+  function nextHint() {
+    if (wst.trialActive)
+      return 'Clear every wave in the arena — the trial ends when nothing is left standing.';
+    if (wst.trial2Active)
+      return 'Do NOT strike back, no matter the provocation. Just keep walking until you reach the glowing altar.';
+    if (wst.trial3Active)
+      return 'Signal the Fragment (E), lead it onto one beacon, command it to hold (E), then stand on the other beacon yourself.';
+    if (!wst.trialComplete)
+      return 'The Trial of Strength waits to the south — a ring of pillars marked on the Map. Press E at its edge to begin.';
+    if (!wst.trial2Complete)
+      return 'The Trial of Restraint lies to the north, through the glowing gate. This one is not won with weapons.';
+    if (!wst.trial3Complete)
+      return 'The Trial of Cooperation is east. You cannot pass it alone — something there will help if you ask.';
+    return 'Three answers given. Ashketh is ready for you.';
+  }
   function update(dt) {
     Engine.player.update(dt);
     Engine.player.updateCamera(dt);
@@ -3876,6 +3951,11 @@ Write ONE fresh in-character line (max 2 sentences, plain spoken dialogue, no qu
     updateFootholds(dt);
     updateAmbientParticles(dt);
     updateProximity();
+    // gentle hint if trial progress has stalled
+    if (!Engine.state.isDead && !Engine.player.inCutscene) {
+      const snap = [wst.trialComplete, wst.trial2Complete, wst.trial3Complete, wst.trialActive, wst.trial2Active, wst.trial3Active, wst.trialWave, wardenFragment ? wardenFragment.state : ''].join('|');
+      Engine.hints.tick(dt, snap, nextHint);
+    }
     // occasional Ashketh musing while exploring outside trials
     musingTimer -= dt;
     if (musingTimer <= 0) {
