@@ -122,7 +122,7 @@ The first world and the game's proving ground. The crew crash-lands here; the pl
 - [x] Sky dome, fog, stars, distant planet, day–night cycle
 - [x] Ruins cluster, crash site, comms dish, flora/rocks/glow-flora
 - [x] Post-processing: bloom + ACES + cinematic grade + rim light + particles + wind sway + dust bursts
-- [ ] Character system incl. **headgear** (writes `character:config`)
+- [x] Character system incl. **headgear** (writes `character:config`)
 - [x] Movement, stamina/sprint, jump/gravity, footsteps, rig animation *(talking + death animation land with dialogue/game-over in Phase 2)*
 - [x] Melee combat + full `WEAPON_DEFS` (melee/ranged/explosive) + tracers/recoil/rockets + armory UI + unlock toasts (`weapon:state`)
 - [x] Wildlife enemies (params + spawn set + AI) + hurt flash/shake + game over
@@ -134,6 +134,6 @@ The first world and the game's proving ground. The crew crash-lands here; the pl
 - [x] Ship: unlock at 50%, 6-DoF flight, fuel, ship weapon, board/exit
 - [x] Readiness (three-track formula + badge/panel)
 - [x] Summon at 100% → **`Engine.goto('hollowVerge')`** carrying appearance/weapon/flags
-- [ ] Audio (SFX set + ambient wind + tension score + footsteps)
-- [ ] Settings (difficulty/colorblind/graphics) via shared `settings:v1`
-- [ ] Save/load (`save:v1` full shape) + autosave
+- [x] Audio (SFX set + per-world ambient bed + footsteps) *(tension-reactive score simplified to the shared ambient hum — engine-level decision from the scaffold)*
+- [x] Settings (difficulty/colorblind/graphics) via shared `settings:v1` *(+ text size, subtitles, remappable keys)*
+- [x] Save/load (unified `save:v1` whole-game shape) + autosave

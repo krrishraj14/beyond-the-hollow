@@ -409,6 +409,7 @@
     <div class="row"><label>Suit Color</label><div class="swatches" id="ccSuit"></div></div>
     <div class="row"><label>Leg Color</label><div class="swatches" id="ccLeg"></div></div>
     <div class="row"><label>Skin Tone</label><div class="swatches" id="ccSkin"></div></div>
+    <div class="row"><label>Headgear</label><div class="choices" id="ccHead"></div></div>
     <div class="btn" id="btnBegin">Begin Expedition</div>
   </div>
 </div>
@@ -1242,11 +1243,13 @@ Engine.choicelog = (() => {
     if (decisions.find((d) => d.id === id)) return;
     decisions.push({ id, label, outcome }); render(); persist();
     Engine.audio.sfx.blip();
+    if (Engine.save) Engine.save.queue();
   }
   function addLore(id, title, text) {
     if (lore.find((l) => l.id === id)) return;
     lore.push({ id, title, text }); render(); persist();
     Engine.ashketh.say('Fragment recovered: ' + title, 2600);
+    if (Engine.save) Engine.save.queue();
   }
   function render() {
     const dBox = document.getElementById('logDecisions'), lBox = document.getElementById('logLore');
@@ -1300,6 +1303,7 @@ const WorldManager = (() => {
   const worlds = {};
   let current = null;
   function register(world) { worlds[world.id] = world; }
+  function all() { return Object.values(worlds); }
   function goto(id) {
     const next = worlds[id]; if (!next) { console.warn('no world', id); return; }
     if (current) { if (current.exit) current.exit(); }
@@ -1324,7 +1328,57 @@ const WorldManager = (() => {
     } catch (e) { /* modules not yet loaded during very first goto — boot re-applies */ }
   }
   Engine.goto = goto;                         // exposed so worlds/summon can call it
-  return { register, goto, get current() { return current; } };
+  return { register, goto, all, get current() { return current; } };
+})();
+
+/* ==========================================================================
+   Engine.save — ONE unified save:v1 for the whole game (Phase 6).
+   Within a session, worlds share state live in memory; this file exists only
+   for cross-session persistence. Worlds contribute chunks via getSaveData()
+   and restore themselves via applySaveData() at build time. The old
+   save:planetb:v1 bridge is retired; character:config / weapon:state remain
+   as cross-session convenience keys owned by charcreate / armory.
+   ========================================================================== */
+Engine.save = (() => {
+  const KEY = 'save:v1';
+  let loaded = null;      // raw loaded data; worlds consume their chunk on build
+  let timer = null;
+
+  function collect() {
+    const st = Engine.state;
+    const data = {
+      v: 2,
+      world: WorldManager.current ? WorldManager.current.id : 'kessasReach',
+      engine: { hp: st.hp, maxHp: st.maxHp, stamina: st.stamina, kills: st.kills, flags: { ...st.flags } },
+      worlds: {},
+    };
+    WorldManager.all().forEach((w) => {
+      if (w._built && w.getSaveData) data.worlds[w.id] = w.getSaveData();
+      else if (loaded && loaded.worlds && loaded.worlds[w.id]) data.worlds[w.id] = loaded.worlds[w.id];
+    });
+    return data;
+  }
+  async function save() { await Engine.storage.set(KEY, collect()); }
+  function queue() { clearTimeout(timer); timer = setTimeout(save, 1500); }
+  async function load() {
+    loaded = await Engine.storage.get(KEY);
+    if (loaded && loaded.engine) {
+      const e = loaded.engine;
+      Object.assign(Engine.state, {
+        hp: e.hp ?? Engine.state.hp,
+        maxHp: e.maxHp ?? Engine.state.maxHp,
+        stamina: e.stamina ?? Engine.state.stamina,
+        kills: e.kills ?? 0,
+        flags: { ...(e.flags || {}) },
+      });
+    }
+    return !!loaded;
+  }
+  function chunk(worldId) { return loaded && loaded.worlds ? loaded.worlds[worldId] : null; }
+  function startWorld() { return loaded && loaded.world ? loaded.world : null; }
+  window.addEventListener('beforeunload', () => { try { save(); } catch (e) {} });
+  setInterval(save, 20000);
+  return { save, queue, load, chunk, startWorld };
 })();
 
 /* ==========================================================================
@@ -1794,6 +1848,7 @@ const WorldA = (() => {
     wst.colonyStrength += def.strength;
     updateHudBadges();
     renderBuildMenu();
+    Engine.save.queue();
   }
   function renderBuildMenu() {
     const list = document.getElementById('buildOptionsList');
@@ -2286,6 +2341,7 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
       nearResource.userData.respawnTimer = 8;
       nearResource.visible = false;
       Engine.audio.sfx.gather();
+      Engine.save.queue();
     }
   }
   function updateProximity() {
@@ -2771,6 +2827,8 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
     document.getElementById('readinessCloseBtn').onclick = () => { document.getElementById('readinessPanel').style.display = 'none'; };
     Engine.armory.readinessProvider = () => computeReadiness().overall;
     updateHudBadges();
+    const saved = Engine.save.chunk('kessasReach');
+    if (saved) applySaveData(saved);
   }
   function onRespawn() {
     Engine.state.hp = Engine.state.maxHp;
@@ -2779,6 +2837,54 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
     Engine.player.revive();
     player.position.set(0, heightAt(0, 5), 5);
     document.getElementById('gameOverOverlay').style.display = 'none';
+  }
+  function getSaveData() {
+    return {
+      px: player.position.x, pz: player.position.z,
+      wood: wst.wood, scrap: wst.scrap,
+      colonyStrength: wst.colonyStrength,
+      timeOfDay: wst.timeOfDay,
+      shipUnlocked: wst.shipUnlocked,
+      summoned: wst.summoned,
+      builtCounts: { ...builtCounts },
+      slots: buildSlots.map((sl) => ({ filled: sl.filled, builtType: sl.builtType || null })),
+      npc: { reyes: npcState.reyes.current, osei: npcState.osei.current, kade: npcState.kade.current },
+      rival: { kadeDead: rivalNpcs.kade.dead, scoutDead: rivalNpcs.scout.dead, active: rivalNpcs.kade.active },
+    };
+  }
+  function applySaveData(d) {
+    wst.wood = d.wood ?? 0;
+    wst.scrap = d.scrap ?? 0;
+    wst.colonyStrength = d.colonyStrength ?? 0;
+    wst.timeOfDay = d.timeOfDay ?? 0.3;
+    wst.summoned = !!d.summoned;
+    if (d.builtCounts) Object.assign(builtCounts, d.builtCounts);
+    if (Array.isArray(d.slots)) {
+      d.slots.forEach((saved, i) => {
+        const slot = buildSlots[i];
+        if (slot && saved.filled && !slot.filled) {
+          slot.filled = true;
+          slot.builtType = saved.builtType;
+          const def = structureDefs.find((sd) => sd.id === saved.builtType);
+          if (def) createStructureMesh(def, slot);
+        }
+      });
+    }
+    if (d.npc) {
+      npcState.reyes.current = d.npc.reyes || null;
+      npcState.osei.current = d.npc.osei || null;
+      npcState.kade.current = d.npc.kade || null;
+    }
+    if (d.rival) {
+      if (d.rival.kadeDead) { rivalNpcs.kade.dead = true; rivalNpcs.kade.group.visible = false; }
+      if (d.rival.scoutDead) { rivalNpcs.scout.dead = true; rivalNpcs.scout.group.visible = false; }
+      if (d.rival.active) Object.values(rivalNpcs).forEach((r) => { r.active = true; });
+    }
+    if (d.shipUnlocked) { wst.shipUnlocked = true; ship.visible = true; }
+    if (typeof d.px === 'number' && typeof d.pz === 'number') {
+      player.position.set(d.px, heightAt(d.px, d.pz), d.pz);
+    }
+    updateHudBadges();
   }
   function enter() {
     Object.assign(Engine.state, { maxHp: 140, hp: Engine.state.hp || 140 });
@@ -2852,6 +2958,7 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
   function talking() { return wst.dialogueOpen; }
   return { id: 'kessasReach', name: "Kessa's Reach", scene, mood, build, enter, exit, update, heightAt,
     getTargets, getCombatTargets, onInteract, onLand, onDeath, onRespawn, uiBlocked, talking,
+    getSaveData, applySaveData,
     obstacles, bound: 48, state: wst, RUINS_CENTER,
     spawnDust: (x, y, z, count, color, opacity) => spawnDustBurst(x, y, z, count, color, opacity),
     getLandmarks() { return [
@@ -3304,9 +3411,8 @@ const WorldB = (() => {
     scene.add(group);
     return group;
   }
-  function constructFoothold(fh) {
+  function constructFoothold(fh, quiet) {
     fh.built = true;
-    Engine.audio.sfx.build();
     const def = FOOTHOLD_DEFS[fh.type];
     fh.group.userData.ringMat.emissive.setHex(def.color);
     fh.group.userData.ringMat.emissiveIntensity = 0.9;
@@ -3314,7 +3420,11 @@ const WorldB = (() => {
       new THREE.MeshStandardMaterial({ color: 0x2a323e, emissive: def.color, emissiveIntensity: 0.8 }));
     beacon.position.y = 0.9;
     fh.group.add(beacon);
-    say(`${def.name} secured. This ground is yours now.`, 3200);
+    if (!quiet) {
+      Engine.audio.sfx.build();
+      say(`${def.name} secured. This ground is yours now.`, 3200);
+      Engine.save.queue();
+    }
   }
   function updateFootholds(dt) {
     nearFoothold = null;
@@ -3643,11 +3753,15 @@ Write ONE fresh in-character line (max 2 sentences, plain spoken dialogue, no qu
     document.getElementById('btnEndingRestart').onclick = () => {
       document.getElementById('thresholdGateOverlay').style.display = 'none';
     };
+    const saved = Engine.save.chunk('hollowVerge');
+    if (saved) applySaveData(saved);
   }
 
+  let entered = false;
   function enter() {
     // arriving through the summon: the Verge is harsher — tighter HP pool
-    Object.assign(Engine.state, { maxHp: 100, hp: 100, stamina: Engine.state.maxStamina });
+    Object.assign(Engine.state, { maxHp: 100, hp: entered ? Math.min(Engine.state.hp, 100) : 100, stamina: Engine.state.maxStamina });
+    entered = true;
     document.getElementById('enemyHpBox').style.display = 'none';
     say('You reached my threshold. Few do. Fewer still deserve to leave it.', 5000);
   }
@@ -3683,6 +3797,29 @@ Write ONE fresh in-character line (max 2 sentences, plain spoken dialogue, no qu
     else player.position.set(0, 0, 5);
     document.getElementById('gameOverOverlay').style.display = 'none';
   }
+  function getSaveData() {
+    return {
+      px: player.position.x, pz: player.position.z,
+      trialComplete: wst.trialComplete,
+      trial2Complete: wst.trial2Complete,
+      trial3Complete: wst.trial3Complete,
+      thresholdTriggered: wst.thresholdTriggered,
+      footholds: footholds.map((f) => ({ id: f.id, built: f.built })),
+    };
+  }
+  function applySaveData(d) {
+    wst.trialComplete = !!d.trialComplete;
+    wst.trial2Complete = !!d.trial2Complete;
+    wst.trial3Complete = !!d.trial3Complete;
+    wst.thresholdTriggered = !!d.thresholdTriggered;
+    if (Array.isArray(d.footholds)) {
+      d.footholds.forEach((saved) => {
+        const fh = footholds.find((f) => f.id === saved.id);
+        if (fh && saved.built && !fh.built) constructFoothold(fh, true);
+      });
+    }
+    if (typeof d.px === 'number' && typeof d.pz === 'number') player.position.set(d.px, 0, d.pz);
+  }
   function onInteract() {
     if (Engine.state.isDead) return;
     if (nearTrialEntrance && !wst.trialActive && !wst.trialComplete) { startTrial(); return; }
@@ -3709,6 +3846,7 @@ Write ONE fresh in-character line (max 2 sentences, plain spoken dialogue, no qu
   }
   return { id: 'hollowVerge', name: 'The Hollow Verge', scene, mood, build, enter, exit, update, heightAt,
     getCombatTargets, interceptAttack, onInteract, onDeath, onRespawn,
+    getSaveData, applySaveData,
     obstacles, bound: 55, state: wst,
     getLandmarks() { return [
       { name: 'Trial of Strength', x: TRIAL_CENTER.x, z: TRIAL_CENTER.z, type: 'story' },
@@ -3763,7 +3901,31 @@ Engine.charcreate = (() => {
   const SUIT = [0x4f8ff0, 0xe2574c, 0x4fd18a, 0xe2b04c, 0x9b6fe0, 0x2a2f3a, 0xe08fc0, 0x6fe0e0];
   const LEG = [0x262b35, 0x4a3a2f, 0x3a3f4a, 0x5a2a2a, 0x2a4a3a, 0x1a1a1a];
   const SKIN = [0xf0c89a, 0xd9a876, 0xb87f56, 0x8a5a3a, 0x5c3a26];
-  const cfg = { size: 'standard', build: 'standard', suitColor: SUIT[0], legColor: LEG[0], skinColor: SKIN[0] };
+  const HEADGEAR = ['none', 'cap', 'helmet', 'crest'];
+  const cfg = { size: 'standard', build: 'standard', suitColor: SUIT[0], legColor: LEG[0], skinColor: SKIN[0], headgear: 'none' };
+
+  /* headgear meshes (ported; positioned at the head, toggled by selection) */
+  function ensureHeadgear(parts) {
+    if (parts._headgear) return parts._headgear;
+    const cap = new THREE.Mesh(
+      new THREE.SphereGeometry(0.25, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2.2),
+      new THREE.MeshStandardMaterial({ color: cfg.suitColor }));
+    cap.position.y = 1.76;
+    const helmet = new THREE.Group();
+    const helmetShell = new THREE.Mesh(new THREE.SphereGeometry(0.28, 16, 12),
+      new THREE.MeshStandardMaterial({ color: cfg.legColor, metalness: 0.4, roughness: 0.4 }));
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.09, 0.11),
+      new THREE.MeshStandardMaterial({ color: 0x6fd0e0, emissive: 0x6fd0e0, emissiveIntensity: 0.5 }));
+    visor.position.set(0, -0.02, 0.23);
+    helmet.add(helmetShell, visor);
+    helmet.position.y = 1.72;
+    const crest = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.32, 6),
+      new THREE.MeshStandardMaterial({ color: cfg.suitColor }));
+    crest.position.y = 2.0;
+    [cap, helmet, crest].forEach((m) => { m.visible = false; parts.group.add(m); });
+    parts._headgear = { cap, helmet, crest };
+    return parts._headgear;
+  }
 
   function applyTo(parts) {
     if (!parts) return;
@@ -3777,9 +3939,14 @@ Engine.charcreate = (() => {
     parts.leftLeg.children[0].material.color.setHex(cfg.legColor);
     parts.rightLeg.children[0].material.color.setHex(cfg.legColor);
     parts.head.material.color.setHex(cfg.skinColor);
+    const hg = ensureHeadgear(parts);
+    hg.cap.material.color.setHex(cfg.suitColor);
+    hg.crest.material.color.setHex(cfg.suitColor);
+    hg.helmet.children[0].material.color.setHex(cfg.legColor);
+    Object.keys(hg).forEach((key) => { hg[key].visible = (key === cfg.headgear); });
   }
   function applyToActive() { const w = WorldManager.current; if (w && w.playerParts) applyTo(w.playerParts); }
-  function persist() { Engine.storage.set('character:config', { size: cfg.size, build: cfg.build, suitColor: cfg.suitColor, legColor: cfg.legColor, skin: cfg.skinColor }); }
+  function persist() { Engine.storage.set('character:config', { size: cfg.size, build: cfg.build, suitColor: cfg.suitColor, legColor: cfg.legColor, skin: cfg.skinColor, headgear: cfg.headgear }); }
 
   function chip(id, opts, cur, pick) {
     const box = document.getElementById(id); if (!box) return; box.innerHTML = '';
@@ -3795,6 +3962,7 @@ Engine.charcreate = (() => {
     swatch('ccSuit', SUIT, cfg.suitColor, (v) => cfg.suitColor = v);
     swatch('ccLeg', LEG, cfg.legColor, (v) => cfg.legColor = v);
     swatch('ccSkin', SKIN, cfg.skinColor, (v) => cfg.skinColor = v);
+    chip('ccHead', HEADGEAR, cfg.headgear, (v) => cfg.headgear = v);
     applyToActive();
   }
   function open() { Engine.state.paused = true; document.getElementById('startOverlay').style.display = 'flex'; render(); applyToActive(); if (Engine.player.snapCamera) Engine.player.snapCamera(); }
@@ -3807,7 +3975,7 @@ Engine.charcreate = (() => {
   }
   async function load() {
     const d = await Engine.storage.get('character:config');
-    if (d) { cfg.size = d.size ?? 'standard'; cfg.build = d.build ?? 'standard'; cfg.suitColor = d.suitColor ?? SUIT[0]; cfg.legColor = d.legColor ?? LEG[0]; cfg.skinColor = (d.skin ?? d.skinColor) ?? SKIN[0]; }
+    if (d) { cfg.size = d.size ?? 'standard'; cfg.build = d.build ?? 'standard'; cfg.suitColor = d.suitColor ?? SUIT[0]; cfg.legColor = d.legColor ?? LEG[0]; cfg.skinColor = (d.skin ?? d.skinColor) ?? SKIN[0]; cfg.headgear = d.headgear ?? 'none'; }
   }
   return { load, open, begin, applyToActive };
 })();
@@ -3985,7 +4153,8 @@ document.getElementById('btnCloseArmory').onclick = () => Engine.armory.close();
   await Engine.choicelog.load();    // restore any recorded decisions / lore
   await Engine.charcreate.load();   // restore saved appearance
   await Engine.armory.load();       // restore equipped/unlocked weapons
-  Engine.goto('kessasReach');       // build + frame the world behind the start screen
+  await Engine.save.load();         // unified save:v1 — engine state + world chunks
+  Engine.goto(Engine.save.startWorld() || 'kessasReach');  // resume where the save left off
   Engine.charcreate.open();         // Start / customization; gameplay paused until "Begin"
   animate();
 })();

@@ -81,4 +81,4 @@ Reads `character:config`, `weapon:state`, `settings:v1`, and `save:v1` (for choi
 - [x] Choice echo from live flags into trial-start dialogue **and** ending
 - [x] Ending: trust score (0–3) → four tiers, staged cutscene, retryable restart
 - [x] Settings via shared `settings:v1`
-- [ ] Save/load folded into unified `save:v1` (retire `save:planetb:v1`)
+- [x] Save/load folded into unified `save:v1` (retire `save:planetb:v1`)
