@@ -131,9 +131,9 @@ The first world and the game's proving ground. The crew crash-lands here; the pl
 - [x] Dynamic ambient dialogue (dynamicEligible/personality/variants + silent fallback)
 - [x] Rival encounter (fight/truce, Kade recruit + contribution)
 - [x] Decisions 1–3 wired to flags **and** `Engine.choicelog.record(...)`; ruins vision (`visionSeen`)
-- [ ] Ship: unlock at 50%, 6-DoF flight, fuel, ship weapon, board/exit
+- [x] Ship: unlock at 50%, 6-DoF flight, fuel, ship weapon, board/exit
 - [x] Readiness (three-track formula + badge/panel)
-- [ ] Summon at 100% → **`Engine.goto('hollowVerge')`** carrying appearance/weapon/flags
+- [x] Summon at 100% → **`Engine.goto('hollowVerge')`** carrying appearance/weapon/flags
 - [ ] Audio (SFX set + ambient wind + tension score + footsteps)
 - [ ] Settings (difficulty/colorblind/graphics) via shared `settings:v1`
 - [ ] Save/load (`save:v1` full shape) + autosave

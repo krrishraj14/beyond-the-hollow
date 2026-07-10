@@ -214,6 +214,13 @@
     white-space: nowrap; pointer-events: none; z-index: 7; display: none;
   }
 
+  /* flight HUD (ship) */
+  #flightHud { position: fixed; top: 14px; left: 16px; display: none; flex-direction: column; gap: 6px; pointer-events: none; z-index: 3; }
+  #flightHud .bar { width: 170px; }
+  #fuelFill { background: linear-gradient(90deg,#6fd0e0,#8ff0ff); box-shadow: 0 0 8px rgba(111,208,224,.6); display: block; height: 100%; }
+  #flightSpeedBadge { align-self: flex-start; background: rgba(14,18,28,.8); padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; border: 1px solid rgba(255,255,255,.2); margin-top: 5px; }
+  #btnExitShip { position: fixed; bottom: 60px; left: 16px; z-index: 21; display: none; cursor: pointer; background: rgba(14,18,28,.8); border: 1px solid rgba(255,255,255,.2); color: #e8ecf2; font-size: 12px; font-weight: 700; padding: 10px 16px; border-radius: 20px; }
+
   /* armory */
   #armoryOverlay .panel { max-height: 82vh; overflow-y: auto; }
   .weaponCard { padding: 12px; border-radius: 9px; background: #10151f; border: 1px solid rgba(255,255,255,.08); margin-bottom: 9px; }
@@ -301,6 +308,21 @@
   <h2>You Were Overwhelmed</h2>
   <p>The wildlife here doesn't forgive carelessness. Get back up and try again.</p>
   <button id="btnRespawn">Respawn</button>
+</div>
+
+<div id="flightHud">
+  <div class="bar"><i id="fuelFill" style="width:100%"></i></div>
+  <div id="flightSpeedBadge">Speed: 0</div>
+</div>
+<button id="btnExitShip">Land / Exit Ship</button>
+
+<div id="summonOverlay" style="position:fixed;inset:0;background:rgba(4,2,10,0);display:none;align-items:center;justify-content:center;flex-direction:column;text-align:center;z-index:60;padding:24px;transition:background 2s ease;">
+  <p id="summonLine" style="font-size:calc(17px * var(--text-scale,1));color:#ede6fa;font-style:italic;max-width:520px;line-height:1.7;opacity:0;transition:opacity 1.2s ease;text-shadow:0 0 16px rgba(140,80,220,0.6);"></p>
+  <div id="summonFinal" style="display:none;margin-top:28px;opacity:0;transition:opacity 1.5s ease;">
+    <h2 style="letter-spacing:0.1em;color:#b48ff0;font-size:26px;margin:0 0 10px;">BEYOND THE HOLLOW</h2>
+    <p style="color:#9aa0b0;font-size:13px;max-width:420px;margin:0 auto 18px;">Ashketh has judged you ready. The threshold opens — step through.</p>
+    <button id="btnGoToHollowVerge" style="cursor:pointer;padding:12px 22px;border:none;border-radius:8px;background:#b48ff0;color:#0b0714;font-weight:700;font-size:14px;">Continue the Journey</button>
+  </div>
 </div>
 
 <div id="topRight">
@@ -1094,7 +1116,7 @@ Engine.combat = (() => {
     }
   }
 
-  return { performAttack, damageTarget, getLiveTargets, update };
+  return { performAttack, damageTarget, getLiveTargets, spawnTracer, update };
 })();
 
 /* ==========================================================================
@@ -1288,13 +1310,15 @@ const WorldA = (() => {
     buildMenuOpen: false,
     encounterOpen: false,
     shipUnlocked: false,
+    piloting: false,
+    shipFuel: 100, maxShipFuel: 100,
     summoned: false,
   };
   // gameplay entities (built in build())
-  let reyesNpc = null, oseiNpc = null, beacon = null, monolith = null;
+  let reyesNpc = null, oseiNpc = null, beacon = null, monolith = null, ship = null;
   const rivalNpcs = {};
   const resourceNodes = [];
-  let nearNpcId = null, nearResource = null, nearBeacon = false;
+  let nearNpcId = null, nearResource = null, nearBeacon = false, nearShip = false;
   let kadeContributionTimer = 25, unlockCheckTimer = 0;
 
   const obstacles = [];             // movement collision (Engine.player reads this)
@@ -2195,7 +2219,8 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
 
   /* ================= interaction + proximity ================= */
   function tryInteract() {
-    if (Engine.state.isDead || Engine.player.inCutscene) return;
+    if (Engine.state.isDead || Engine.player.inCutscene || wst.piloting) return;
+    if (nearShip && wst.shipUnlocked) { boardShip(); return; }
     if (nearNpcId) {
       const tree = dialogueTrees[nearNpcId];
       const current = npcState[nearNpcId].current;
@@ -2225,6 +2250,12 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
   function updateProximity() {
     const flags = Engine.state.flags;
     nearNpcId = null;
+    nearShip = false;
+    if (wst.shipUnlocked) {
+      const dxS = player.position.x - ship.position.x;
+      const dzS = player.position.z - ship.position.z;
+      nearShip = (dxS * dxS + dzS * dzS) < 16;
+    }
     const companions = { reyes: reyesNpc, osei: oseiNpc };
     if (flags.rivalPath === 'truce') companions.kade = rivalNpcs.kade.group;
     for (const [id, group] of Object.entries(companions)) {
@@ -2254,9 +2285,11 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
       if (dxR * dxR + dzR * dzR < RIVAL_ENCOUNTER.radius * RIVAL_ENCOUNTER.radius) triggerRivalEncounter();
     }
     const promptEl = document.getElementById('prompt');
-    if ((nearNpcId || nearBeacon || nearResource) && !wst.dialogueOpen && !wst.buildMenuOpen) {
+    if ((nearNpcId || nearBeacon || nearResource || nearShip) && !wst.dialogueOpen && !wst.buildMenuOpen) {
       promptEl.classList.add('show');
-      promptEl.textContent = nearNpcId
+      promptEl.textContent = nearShip && wst.shipUnlocked
+        ? 'Press E — Board Ship'
+        : nearNpcId
         ? `Press E — Talk to ${dialogueTrees[nearNpcId].displayName.split(' ·')[0]}`
         : nearBeacon
         ? 'Press E — Build'
@@ -2266,6 +2299,234 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
     }
     if (!nearNpcId && wst.dialogueOpen) closeDialogue();
     if (!nearBeacon && wst.buildMenuOpen) closeBuildMenu();
+  }
+
+  /* ================= the ship (Reyes' repaired wreck, unlocks at 50%) ================= */
+  const SHIP_PARK = { x: 4, z: 18 };
+  const shipState = { velocity: new THREE.Vector3(), speed: 0 };
+  const SHIP_MAX_SPEED = 22, SHIP_ACCEL = 11, SHIP_DRAG = 0.55;
+  const SHIP_PITCH_RATE = 1.1, SHIP_YAW_RATE = 1.0, SHIP_ROLL_RATE = 1.7;
+  const SHIP_FUEL_DRAIN_THRUST = 6, SHIP_FUEL_RECHARGE_FLIGHT = 1.5, SHIP_FUEL_RECHARGE_DOCKED = 26;
+  let shipFireCooldown = 0;
+
+  function buildShip() {
+    const group = new THREE.Group();
+    const hullMat = new THREE.MeshStandardMaterial({ color: 0x5a6068, metalness: 0.6, roughness: 0.35, flatShading: true });
+    const trimMat = new THREE.MeshStandardMaterial({ color: 0x3a4a4a, metalness: 0.5, roughness: 0.4 });
+    const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.7, 3.6, 10), hullMat);
+    fuselage.rotation.x = Math.PI / 2;
+    fuselage.castShadow = true;
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.55, 1.1, 10), hullMat);
+    nose.rotation.x = -Math.PI / 2;
+    nose.position.z = -2.35;
+    nose.castShadow = true;
+    const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.45, 12, 10, 0, Math.PI * 2, 0, Math.PI / 1.8),
+      new THREE.MeshStandardMaterial({ color: 0x6fd0e0, transparent: true, opacity: 0.55, metalness: 0.2, roughness: 0.1 }));
+    canopy.rotation.x = Math.PI;
+    canopy.position.set(0, 0.35, -1.1);
+    const wingGeo = new THREE.BoxGeometry(2.6, 0.1, 1.1);
+    const leftWing = new THREE.Mesh(wingGeo, trimMat);
+    leftWing.position.set(-1.5, -0.1, 0.4);
+    leftWing.rotation.z = 0.08;
+    leftWing.castShadow = true;
+    const rightWing = leftWing.clone();
+    rightWing.position.x = 1.5;
+    rightWing.rotation.z = -0.08;
+    const engineMat = new THREE.MeshStandardMaterial({ color: 0x2a2f33, metalness: 0.5, roughness: 0.5 });
+    const glowMat = new THREE.MeshStandardMaterial({ color: 0xff8a3a, emissive: 0xff8a3a, emissiveIntensity: 1.1 });
+    function makeEngine(x) {
+      const eg = new THREE.Group();
+      const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 0.6, 8), engineMat);
+      nozzle.rotation.x = Math.PI / 2;
+      const glow = new THREE.Mesh(new THREE.CircleGeometry(0.2, 10), glowMat.clone());
+      glow.position.z = 0.31;
+      eg.add(nozzle, glow);
+      eg.position.set(x, -0.15, 1.9);
+      eg.userData.glow = glow;
+      return eg;
+    }
+    const engineL = makeEngine(-0.9), engineR = makeEngine(0.9);
+    const tailFin = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.9, 0.8), trimMat);
+    tailFin.position.set(0, 0.55, 1.6);
+    group.add(fuselage, nose, canopy, leftWing, rightWing, engineL, engineR, tailFin);
+    group.userData.engineGlows = [engineL.userData.glow, engineR.userData.glow];
+    group.visible = false;   // appears at 50% Readiness
+    return group;
+  }
+
+  function boardShip() {
+    wst.piloting = true;
+    player.visible = false;
+    ship.quaternion.identity();
+    shipState.velocity.set(0, 0, 0);
+    document.getElementById('prompt').classList.remove('show');
+    document.getElementById('hud').style.display = 'none';
+    document.getElementById('flightHud').style.display = 'flex';
+    document.getElementById('btnExitShip').style.display = 'block';
+    Engine.toast('PILOTING — WASD pitch/yaw · Q/E roll · Space/Shift throttle · F fire');
+  }
+  function exitShip() {
+    const groundY = heightAt(ship.position.x, ship.position.z);
+    const nearGround = ship.position.y < groundY + 1.3;
+    if (!nearGround || shipState.speed > 2.5) {
+      Engine.toast('Too fast or too high to land here.');
+      return;
+    }
+    wst.piloting = false;
+    player.position.set(ship.position.x + 1.6, groundY, ship.position.z);
+    player.visible = true;
+    document.getElementById('hud').style.display = '';
+    document.getElementById('flightHud').style.display = 'none';
+    document.getElementById('btnExitShip').style.display = 'none';
+  }
+  function fireShipWeapon() {
+    if (!wst.piloting || shipFireCooldown > 0) return;
+    shipFireCooldown = 0.25;
+    Engine.audio.sfx.gunshot();
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(ship.quaternion);
+    const range = 30, arc = Math.cos(10 * Math.PI / 180);
+    let hitAny = false;
+    Engine.combat.getLiveTargets().forEach((t) => {
+      const dx = t.position.x - ship.position.x, dy = (t.position.y + 0.6) - ship.position.y, dz = t.position.z - ship.position.z;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (dist > range) return;
+      const dirLen = dist || 0.001;
+      const dot = (dx / dirLen) * forward.x + (dy / dirLen) * forward.y + (dz / dirLen) * forward.z;
+      if (dot < arc) return;
+      Engine.combat.damageTarget(t, 22, { x: dx / dirLen, z: dz / dirLen }, 0.5);
+      hitAny = true;
+    });
+    const nosePos = ship.position.clone().addScaledVector(forward, 2);
+    Engine.combat.spawnTracer(nosePos, nosePos.clone().addScaledVector(forward, range));
+    if (hitAny) Engine.player.shake(0.08, 0.1);
+  }
+  function updateShipFlight(dt) {
+    const io = Engine.input;
+    let pitchInput = 0, yawInput = 0, rollInput = 0, throttleInput = 0;
+    if (io.down('forward')) pitchInput -= 1;
+    if (io.down('back')) pitchInput += 1;
+    if (io.down('left')) yawInput += 1;
+    if (io.down('right')) yawInput -= 1;
+    if (io.keys['KeyQ']) rollInput += 1;
+    if (io.keys['KeyE']) rollInput -= 1;
+    if (io.down('jump')) throttleInput += 1;
+    if (io.down('sprint')) throttleInput -= 1;
+    if (io.attackPressed) fireShipWeapon();
+    const qPitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), pitchInput * SHIP_PITCH_RATE * dt);
+    const qYaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yawInput * SHIP_YAW_RATE * dt);
+    const qRoll = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), rollInput * SHIP_ROLL_RATE * dt);
+    ship.quaternion.multiply(qYaw).multiply(qPitch).multiply(qRoll);
+    let thrustAmount = 0;
+    if (wst.shipFuel > 0 && throttleInput !== 0) {
+      thrustAmount = throttleInput;
+      wst.shipFuel = Math.max(0, wst.shipFuel - SHIP_FUEL_DRAIN_THRUST * dt);
+    }
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(ship.quaternion);
+    shipState.velocity.addScaledVector(forward, thrustAmount * SHIP_ACCEL * dt);
+    shipState.velocity.multiplyScalar(Math.max(0, 1 - SHIP_DRAG * dt));
+    if (shipState.velocity.length() > SHIP_MAX_SPEED) shipState.velocity.setLength(SHIP_MAX_SPEED);
+    shipState.speed = shipState.velocity.length();
+    const prevX = ship.position.x, prevZ = ship.position.z;
+    ship.position.addScaledVector(shipState.velocity, dt);
+    const groundY = heightAt(ship.position.x, ship.position.z);
+    // obstacle collision only when flying low — treetop clipping from altitude is fine
+    if (ship.position.y < groundY + 4) {
+      for (const obs of obstacles) {
+        const dx = ship.position.x - obs.position.x, dz = ship.position.z - obs.position.z;
+        const r = 1.1 + (obs.userData.radius || 0.6);
+        if (dx * dx + dz * dz < r * r) {
+          ship.position.x = prevX; ship.position.z = prevZ;
+          shipState.velocity.multiplyScalar(0.2);
+          break;
+        }
+      }
+    }
+    if (ship.position.y < groundY + 0.6) {
+      ship.position.y = groundY + 0.6;
+      if (shipState.velocity.y < 0) shipState.velocity.y = 0;
+    }
+    if (ship.position.y > groundY + 60) ship.position.y = groundY + 60;
+    const bound = 52;
+    ship.position.x = Math.max(-bound, Math.min(bound, ship.position.x));
+    ship.position.z = Math.max(-bound, Math.min(bound, ship.position.z));
+    // fuel: fast recharge docked at the beacon, slow trickle when coasting
+    const distToBeacon = Math.hypot(ship.position.x - beacon.position.x, ship.position.z - beacon.position.z);
+    const nearGroundLevel = ship.position.y < groundY + 1.3;
+    if (distToBeacon < 9 && nearGroundLevel) {
+      wst.shipFuel = Math.min(wst.maxShipFuel, wst.shipFuel + SHIP_FUEL_RECHARGE_DOCKED * dt);
+    } else if (thrustAmount === 0) {
+      wst.shipFuel = Math.min(wst.maxShipFuel, wst.shipFuel + SHIP_FUEL_RECHARGE_FLIGHT * dt);
+    }
+    const glowT = 0.35 + Math.abs(thrustAmount) * 0.9;
+    ship.userData.engineGlows.forEach((g) => g.material.emissiveIntensity = glowT * 1.1);
+    if (shipFireCooldown > 0) shipFireCooldown -= dt;
+    document.getElementById('fuelFill').style.width = (wst.shipFuel / wst.maxShipFuel * 100) + '%';
+    document.getElementById('flightSpeedBadge').textContent = `Speed: ${Math.round(shipState.speed * 10)}`;
+  }
+  function updateShipCamera(dt) {
+    const back = new THREE.Vector3(0, 0, 1).applyQuaternion(ship.quaternion).multiplyScalar(9);
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(ship.quaternion).multiplyScalar(3);
+    const desired = ship.position.clone().add(back).add(up);
+    camera.position.lerp(desired, Math.min(1, dt * 4));
+    const lookTarget = ship.position.clone().addScaledVector(new THREE.Vector3(0, 0, -1).applyQuaternion(ship.quaternion), 5);
+    camera.lookAt(lookTarget);
+  }
+  function checkShipUnlock() {
+    if (wst.shipUnlocked) return;
+    if (computeReadiness().overall >= 50) {
+      wst.shipUnlocked = true;
+      ship.visible = true;
+      Engine.toast('REYES: "SHE\'S FLYING AGAIN. GO TAKE A LOOK."');
+    }
+  }
+
+  /* ================= the summon (the seam to Planet B) ================= */
+  function checkAshkethSummon() {
+    if (wst.summoned || wst.piloting) return;
+    if (computeReadiness().overall >= 100) {
+      wst.summoned = true;
+      triggerSummonSequence();
+    }
+  }
+  function triggerSummonSequence() {
+    Engine.player.startCutscene(new THREE.Vector3(RUINS_CENTER.x, heightAt(RUINS_CENTER.x, RUINS_CENTER.z + 5) + 3, RUINS_CENTER.z + 5), 11);
+    const overlay = document.getElementById('summonOverlay');
+    const line = document.getElementById('summonLine');
+    const final = document.getElementById('summonFinal');
+    overlay.style.display = 'flex';
+    requestAnimationFrame(() => { overlay.style.background = 'rgba(4,2,10,0.88)'; });
+    const lines = [
+      "You feel it before you hear it. A pressure behind the eyes. A weight in the ground itself.",
+      "ASHKETH: \"You have done what the others could not. Fought without losing yourselves. Built without forgetting why.\"",
+      "ASHKETH: \"The threshold is open to you now, Commander. Come, and be measured.\"",
+      "The ruins begin to hum. Somewhere beyond the sky, something ancient turns its attention toward Kessa's Reach — and toward you."
+    ];
+    let i = 0;
+    function showNext() {
+      line.style.opacity = '0';
+      setTimeout(() => {
+        if (i < lines.length) {
+          line.textContent = lines[i];
+          line.style.opacity = '1';
+          i++;
+          setTimeout(showNext, 2600);
+        } else {
+          final.style.display = 'block';
+          requestAnimationFrame(() => { final.style.opacity = '1'; });
+        }
+      }, 400);
+    }
+    showNext();
+    Engine.choicelog.addLore('summon', 'The Summons', 'Ashketh judged the crew ready. The threshold opened — not as a reward, but as a question.');
+  }
+  // THE key merge change: the summon ends with an in-app world swap, not window.open.
+  function completeSummonHandoff() {
+    const overlay = document.getElementById('summonOverlay');
+    overlay.style.display = 'none';
+    overlay.style.background = 'rgba(4,2,10,0)';
+    document.getElementById('summonFinal').style.opacity = '0';
+    if (wst.piloting) exitShip();
+    Engine.goto('hollowVerge');   // appearance, weapon, and flags are live in memory
   }
 
   /* ================= Readiness (the gate to Planet B) ================= */
@@ -2449,6 +2710,13 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
     makeResourceNode(4, -3); makeResourceNode(9, 6); makeResourceNode(-10, 3); makeResourceNode(-3, -9);
     makeResourceNode(-15, -6, 'scrap'); makeResourceNode(13, -10, 'scrap'); makeResourceNode(-5, 12, 'scrap');
 
+    // the ship (hidden until 50% Readiness), parked at the crash hull
+    ship = buildShip();
+    ship.position.set(SHIP_PARK.x, heightAt(SHIP_PARK.x, SHIP_PARK.z), SHIP_PARK.z);
+    scene.add(ship);
+    document.getElementById('btnExitShip').onclick = exitShip;
+    document.getElementById('btnGoToHollowVerge').onclick = completeSummonHandoff;
+
     // one-time UI wiring + readiness feeds the armory's gated unlocks
     document.getElementById('buildCloseBtn').onclick = closeBuildMenu;
     document.getElementById('btnFightRivals').onclick = resolveRivalFight;
@@ -2471,7 +2739,22 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
     Engine.armory.readinessProvider = () => computeReadiness().overall;
     updateHudBadges();
   }
-  function enter() { Object.assign(Engine.state, { maxHp: 140, hp: Engine.state.hp || 140 }); }
+  function enter() {
+    Object.assign(Engine.state, { maxHp: 140, hp: Engine.state.hp || 140 });
+    document.querySelector('#hud .hudBadges').style.display = '';
+    updateHudBadges();
+  }
+  function exit() {
+    // leaving Kessa's Reach: retire its world-specific UI
+    if (wst.piloting) exitShip();
+    closeDialogue(); closeBuildMenu();
+    document.querySelector('#hud .hudBadges').style.display = 'none';
+    document.getElementById('prompt').classList.remove('show');
+    document.getElementById('readinessPanel').style.display = 'none';
+    document.getElementById('enemyHpBox').style.display = 'none';
+    document.getElementById('timeBadge').textContent = '';
+    ['tagReyes', 'tagOsei', 'tagKade'].forEach((id) => { document.getElementById(id).style.display = 'none'; });
+  }
   // richer combat targets: wildlife + (hostile-path) rivals \u2014 Engine.combat consumes these
   function getCombatTargets() {
     const targets = [];
@@ -2488,6 +2771,19 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
   }
   function onLand(x, y, z) { spawnDustBurst(x, heightAt(x, z), z); }
   function update(dt) {
+    if (wst.piloting) {
+      // flight frame: ship physics + camera; the world stays alive around it
+      updateShipFlight(dt);
+      updateShipCamera(dt);
+      updateDayNight(dt);
+      updateEnemies(dt);
+      updateRivalNpcs(dt);
+      updateParticles(dt);
+      updateWindSway(dt);
+      updateReadinessUI();
+      checkShipUnlock();
+      return;
+    }
     Engine.player.update(dt);
     Engine.player.updateCamera(dt);
     updateDayNight(dt);
@@ -2501,14 +2797,19 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
     updateResourceRespawns(dt);
     updateReadinessUI();
     updateNameTags();
-    // readiness-gated weapon unlocks don't have a kill event \u2014 poll once a second
+    // readiness-gated unlocks + ship + summon don't have a kill event \u2014 poll once a second
     unlockCheckTimer += dt;
-    if (unlockCheckTimer > 1) { unlockCheckTimer = 0; Engine.armory.checkUnlocks(); }
+    if (unlockCheckTimer > 1) {
+      unlockCheckTimer = 0;
+      Engine.armory.checkUnlocks();
+      checkShipUnlock();
+      checkAshkethSummon();
+    }
   }
   function onInteract() { tryInteract(); }
   function uiBlocked() { return wst.dialogueOpen || wst.buildMenuOpen || wst.encounterOpen; }
   function talking() { return wst.dialogueOpen; }
-  return { id: 'kessasReach', name: "Kessa's Reach", scene, mood, build, enter, update, heightAt,
+  return { id: 'kessasReach', name: "Kessa's Reach", scene, mood, build, enter, exit, update, heightAt,
     getTargets, getCombatTargets, onInteract, onLand, onDeath, uiBlocked, talking,
     obstacles, bound: 48, state: wst, RUINS_CENTER,
     spawnDust: (x, y, z, count, color, opacity) => spawnDustBurst(x, y, z, count, color, opacity),
