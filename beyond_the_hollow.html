@@ -2038,8 +2038,11 @@ const WorldA = (() => {
       const distP = Math.hypot(dxP, dzP);
       const distFromSpawn = Math.hypot(en.group.position.x - en.spawn.x, en.group.position.z - en.spawn.z);
       if (distP < closestDist) { closestDist = distP; closestAlive = en; }
-      if (distP < ENEMY_AGGRO_RADIUS && !Engine.state.isDead) en.state = 'chase';
-      else if (distFromSpawn < 0.6) en.state = 'idle';
+      // conversations are sacred: while the Commander is talking (or the rival
+      // parley is on screen), the wildlife breaks off and wanders home
+      const inConversation = wst.dialogueOpen || wst.encounterOpen;
+      if (distP < ENEMY_AGGRO_RADIUS && !Engine.state.isDead && !inConversation) en.state = 'chase';
+      else if (distFromSpawn < 0.6 || inConversation) en.state = 'idle';
       if (en.state === 'chase') {
         if (distFromSpawn > ENEMY_LEASH_RADIUS) {
           moveEnemyToward(en, en.spawn.x, en.spawn.z, dt, 2.6);
@@ -2126,6 +2129,14 @@ const WorldA = (() => {
         return;
       }
       if (Engine.state.flags.rivalPath !== 'hostile') return; // truce path: no combat
+      if (wst.dialogueOpen || wst.encounterOpen) {
+        // no attacks mid-conversation — hold position, idle sway
+        r.idlePhase += dt * 1.4;
+        const sway = Math.sin(r.idlePhase) * 0.05;
+        r.parts.leftArm.rotation.x = sway;
+        r.parts.rightArm.rotation.x = -sway;
+        return;
+      }
       const dx = player.position.x - r.group.position.x;
       const dz = player.position.z - r.group.position.z;
       const dist = Math.hypot(dx, dz);
