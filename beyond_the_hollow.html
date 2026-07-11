@@ -223,6 +223,16 @@
   }
   @media (max-width: 720px) { #kbHint { white-space: normal; } }
 
+  #compass {
+    position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+    display: none; align-items: center; gap: 7px;
+    background: rgba(14,18,28,.72); border: 1px solid rgba(255,255,255,.14);
+    border-radius: 16px; padding: 4px 12px; font-size: 11px; letter-spacing: .3px;
+    color: #cfe0da; pointer-events: none; z-index: 8; white-space: nowrap;
+  }
+  #compassArrow { display: inline-block; font-size: 13px; color: #6fe0c5; transition: transform .12s linear; }
+  #compassDist { opacity: .6; }
+
   #weaponToast {
     position: fixed; top: 70px; left: 50%; transform: translateX(-50%) translateY(-10px);
     background: rgba(10,14,20,.92); border: 1px solid #6fe0c5; border-radius: 10px; padding: 10px 18px;
@@ -278,6 +288,7 @@
 </div>
 
 <div id="prompt"></div>
+<div id="compass"><span id="compassArrow">▲</span><span id="compassLabel"></span><span id="compassDist"></span></div>
 <div id="kbHint"></div>
 <div id="hurt"></div>
 <div id="ashketh"></div>
@@ -618,21 +629,110 @@ Engine.audio = (() => {
     rocket:   () => { noise(0.3, 0.14, 500); tone(90, 0.4, 'sawtooth', 0.1, 50); },
     explosion:() => { noise(0.5, 0.22, 350); tone(70, 0.6, 'sawtooth', 0.16, 35); },
   };
-  // Per-world ambient bed. mood = { base:Hz, warmth:0..1 }; drone differs A vs B.
-  function startAmbient(mood) {
-    if (!ensure() || started) { if (started && hum) retune(mood); return; }
-    started = true;
-    hum = ctx.createOscillator(); const g = ctx.createGain();
-    hum.type = 'sine'; hum.frequency.value = mood.base;
-    g.gain.value = 0.02; hum.connect(g).connect(ctx.destination); hum.start();
-    hum._gain = g;
-  }
-  function retune(mood) { if (hum) hum.frequency.linearRampToValueAtTime(mood.base, ctx.currentTime + 1.2); }
-  return { ensure, tone, noise, sfx, startAmbient };
+  /* ---- per-world ambient score (ported from the originals) ----------------
+     Kessa's Reach: wind-noise bed + slow bleak drone (G2/Bb2/D3/F3), filter
+     opens with daylight. Hollow Verge: colder noise + 55Hz systems hum +
+     dissonant minor-2nd drone. Both swell with combat tension. */
+  const music = (() => {
+    let nodes = null, time = 0, profile = null, pendingProfile = null;
+    function stop() {
+      if (!nodes) return;
+      try { nodes.all.forEach((n) => { if (n.stop) n.stop(); n.disconnect(); }); } catch (e) {}
+      nodes = null; profile = null;
+    }
+    function makeNoiseBed(filterFreq, gainVal) {
+      const bufferSize = ctx.sampleRate * 2;
+      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+      const noiseSrc = ctx.createBufferSource();
+      noiseSrc.buffer = buffer; noiseSrc.loop = true;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass'; filter.frequency.value = filterFreq;
+      const g = ctx.createGain(); g.gain.value = gainVal;
+      noiseSrc.connect(filter); filter.connect(g); g.connect(ctx.destination);
+      noiseSrc.start();
+      return [noiseSrc, filter, g];
+    }
+    function makeDrone(notes, masterVal, filterFreq, oscType) {
+      const masterGain = ctx.createGain(); masterGain.gain.value = masterVal;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass'; filter.frequency.value = filterFreq;
+      masterGain.connect(filter); filter.connect(ctx.destination);
+      const oscs = notes.map((freq, i) => {
+        const osc = ctx.createOscillator();
+        osc.type = oscType ? oscType(i) : 'sine';
+        osc.frequency.value = freq * (1 + (Math.random() - 0.5) * 0.004);
+        const g = ctx.createGain(); g.gain.value = 0;
+        osc.connect(g); g.connect(masterGain);
+        osc.start();
+        return { osc, gain: g, phase: Math.random() * Math.PI * 2, speed: 0.05 + i * 0.015 };
+      });
+      return { oscs, masterGain, filter };
+    }
+    function start(name) {
+      if (!ensure() || ctx.state === 'suspended') { pendingProfile = name; return; }
+      if (profile === name && nodes) return;
+      stop();
+      if (name === 'kessasReach') {
+        const bed = makeNoiseBed(420, 0.035);
+        const drone = makeDrone([98.0, 116.54, 146.83, 174.61], 0.05, 600); // G2 Bb2 D3 F3 — open, unresolved
+        nodes = { drone, all: [...bed, drone.masterGain, drone.filter, ...drone.oscs.map((o) => o.osc)] };
+      } else {
+        const bed = makeNoiseBed(260, 0.03);
+        const hum55 = ctx.createOscillator();
+        hum55.type = 'sine'; hum55.frequency.value = 55;
+        const humGain = ctx.createGain(); humGain.gain.value = 0.02;
+        hum55.connect(humGain); humGain.connect(ctx.destination); hum55.start();
+        const drone = makeDrone([110.0, 130.81, 138.59, 196.0], 0.045, 500, (i) => i % 2 === 0 ? 'triangle' : 'sine'); // minor-2nd dissonance
+        nodes = { drone, all: [...bed, hum55, humGain, drone.masterGain, drone.filter, ...drone.oscs.map((o) => o.osc)] };
+      }
+      profile = name;
+    }
+    function update(dt, params) {
+      if (!nodes) return;
+      time += dt;
+      const tension = params.tension || 0;
+      const d = nodes.drone;
+      if (profile === 'kessasReach') {
+        d.oscs.forEach((o) => {
+          const swell = 0.015 + Math.max(0, Math.sin(time * o.speed + o.phase)) * 0.02;
+          o.gain.gain.setTargetAtTime(swell * (1 + tension * 0.6), ctx.currentTime, 0.6);
+        });
+        const targetFreq = 350 + Math.max(0, params.sunHeight || 0) * 700 - tension * 150;
+        d.filter.frequency.setTargetAtTime(Math.max(150, targetFreq), ctx.currentTime, 1.2);
+      } else {
+        d.oscs.forEach((o) => {
+          const swell = 0.012 + Math.max(0, Math.sin(time * o.speed + o.phase)) * 0.018;
+          o.gain.gain.setTargetAtTime(swell * (1 + tension * 0.7), ctx.currentTime, 0.6);
+        });
+        d.filter.frequency.setTargetAtTime(Math.max(140, 420 - tension * 180), ctx.currentTime, 1.2);
+      }
+    }
+    function resumePending() {
+      if (pendingProfile && ctx && ctx.state === 'running') {
+        const p = pendingProfile; pendingProfile = null; start(p);
+      }
+    }
+    return { start, update, stop, resumePending };
+  })();
+  return { ensure, tone, noise, sfx, music };
 })();
-// Any first user gesture unlocks the audio context.
-window.addEventListener('pointerdown', () => Engine.audio.ensure(), { once: true });
-window.addEventListener('keydown', () => Engine.audio.ensure(), { once: true });
+// User gestures unlock (and resume) the audio context, then any pending score starts.
+(function unlockAudio() {
+  const kick = () => {
+    const ctx = Engine.audio.ensure();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume().then(() => Engine.audio.music.resumePending());
+    else Engine.audio.music.resumePending();
+    if (ctx.state === 'running') {
+      window.removeEventListener('pointerdown', kick);
+      window.removeEventListener('keydown', kick);
+    }
+  };
+  window.addEventListener('pointerdown', kick);
+  window.addEventListener('keydown', kick);
+})();
 
 /* ==========================================================================
    Engine.rig — shared humanoid factory (was duplicated verbatim-ish)
@@ -976,6 +1076,37 @@ function triggerHurtFlash() {
   el.style.boxShadow = 'inset 0 0 140px 40px rgba(210,40,40,0.5)';
   setTimeout(() => { el.style.boxShadow = 'inset 0 0 140px 40px rgba(210,40,40,0)'; }, 120);
 }
+
+/* ==========================================================================
+   Engine.compass — a small top-center pointer toward the current objective.
+   Worlds expose objective() -> { x, z, label } | null (same story ladder the
+   hint system uses). The arrow rotates in screen space: up = straight ahead.
+   ========================================================================== */
+Engine.compass = (() => {
+  const el = () => document.getElementById('compass');
+  function update() {
+    const box = el(); if (!box) return;
+    const w = WorldManager.current;
+    const blocked = !w || !w.objective || Engine.state.isDead || Engine.player.inCutscene ||
+      (w.uiBlocked && w.uiBlocked()) || !Engine.state.started;
+    const o = blocked ? null : w.objective();
+    if (!o || !w.player) { box.style.display = 'none'; return; }
+    const dx = o.x - w.player.position.x;
+    const dz = o.z - w.player.position.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist < 3.5) { box.style.display = 'none'; return; }
+    const camF = Math.atan2(-Math.sin(Engine.state.camYaw), -Math.cos(Engine.state.camYaw));
+    const bearing = Math.atan2(dx, dz);
+    let deg = ((camF - bearing) * 180 / Math.PI) % 360;
+    if (deg > 180) deg -= 360;
+    if (deg < -180) deg += 360;
+    document.getElementById('compassArrow').style.transform = `rotate(${deg.toFixed(1)}deg)`;
+    document.getElementById('compassLabel').textContent = o.label;
+    document.getElementById('compassDist').textContent = Math.round(dist) + 'm';
+    box.style.display = 'flex';
+  }
+  return { update };
+})();
 
 /* ---- always-on controls reference (bottom of screen) ----------------------
    Reads the live keybind map so remapped keys show correctly; switches to
@@ -1382,7 +1513,7 @@ const WorldManager = (() => {
       gradePass.uniforms.tint.value.copy(next.mood.tint || new THREE.Color(1, 1, 1));
       gradePass.uniforms.exposure.value = next.mood.exposure ?? 1.0;
       if (Engine.state.graphicsQuality === 'high') bloomPass.strength = next.mood.bloom ?? 0.55;
-      Engine.audio.startAmbient(next.mood.audio || { base: 70, warmth: 0.6 });
+      Engine.audio.music.start(next.id);
     }
     Engine.player.attach(next.player, next);
     document.getElementById('worldName').textContent = next.name;
@@ -3010,6 +3141,7 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
       updateWindSway(dt);
       updateReadinessUI();
       checkShipUnlock();
+      Engine.audio.music.update(dt, { sunHeight: currentSunHeight, tension: 0.3 }); // airborne: light tension
       return;
     }
     Engine.player.update(dt);
@@ -3025,6 +3157,9 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
     updateResourceRespawns(dt);
     updateReadinessUI();
     updateNameTags();
+    // score reacts to daylight + combat tension (ported behavior)
+    const combatTension = enemies.some((en) => !en.dead && en.state === 'chase') ? 1 : 0;
+    Engine.audio.music.update(dt, { sunHeight: currentSunHeight, tension: combatTension });
     // gentle hint if story progress has stalled (not during dialogue/cutscenes)
     if (!uiBlocked() && !Engine.player.inCutscene && !Engine.state.isDead) {
       const f = Engine.state.flags;
@@ -3042,6 +3177,36 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
   }
   function onInteract() { tryInteract(); }
   function uiBlocked() { return wst.dialogueOpen || wst.buildMenuOpen || wst.encounterOpen; }
+
+  /* compass target — same story ladder as the hints, but with a position */
+  function objective() {
+    const f = Engine.state.flags;
+    const r = computeReadiness();
+    const nearest = (items) => {
+      let best = null, bd = Infinity;
+      items.forEach((it) => {
+        if (!it) return;
+        const d = Math.hypot(it.x - player.position.x, it.z - player.position.z);
+        if (d < bd) { bd = d; best = it; }
+      });
+      return best;
+    };
+    if (wst.piloting || wst.summoned) return null;
+    if (!npcState.reyes.current && !npcState.osei.current)
+      return nearest([{ x: reyesNpc.position.x, z: reyesNpc.position.z, label: 'Talk to the crew' },
+                      { x: oseiNpc.position.x, z: oseiNpc.position.z, label: 'Talk to the crew' }]);
+    if (wst.wood === 0 && wst.scrap === 0 && wst.colonyStrength === 0)
+      return nearest(resourceNodes.filter((n) => n.visible).map((n) => ({ x: n.position.x, z: n.position.z, label: 'Gather resources' })));
+    if (!f.reyesPath) return { x: reyesNpc.position.x, z: reyesNpc.position.z, label: 'Reyes' };
+    if (!f.visionSeen) return { x: RUINS_CENTER.x, z: RUINS_CENTER.z, label: 'The Ruins' };
+    if (!f.oseiDiscoveryDone) return { x: oseiNpc.position.x, z: oseiNpc.position.z, label: 'Dr. Osei' };
+    if (!f.rivalPath) return { x: RIVAL_ENCOUNTER.x, z: RIVAL_ENCOUNTER.z, label: 'Skirmish Ridge' };
+    if (r.colony < 100) return { x: beacon.position.x, z: beacon.position.z, label: 'Colony Beacon' };
+    if (r.combat < 100)
+      return nearest(enemies.filter((e) => !e.dead).map((e) => ({ x: e.group.position.x, z: e.group.position.z, label: 'Hostile wildlife' })));
+    if (wst.shipUnlocked) return { x: ship.position.x, z: ship.position.z, label: 'The Ship' };
+    return null;
+  }
 
   /* what should the player do next? (checked in story-priority order) */
   function nextHint() {
@@ -3071,7 +3236,7 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
   }
   function talking() { return wst.dialogueOpen; }
   return { id: 'kessasReach', name: "Kessa's Reach", scene, mood, build, enter, exit, update, heightAt,
-    getTargets, getCombatTargets, onInteract, onLand, onDeath, onRespawn, uiBlocked, talking,
+    getTargets, getCombatTargets, onInteract, onLand, onDeath, onRespawn, uiBlocked, talking, objective,
     getSaveData, applySaveData,
     obstacles, bound: 48, state: wst, RUINS_CENTER,
     spawnDust: (x, y, z, count, color, opacity) => spawnDustBurst(x, y, z, count, color, opacity),
@@ -3944,6 +4109,31 @@ Write ONE fresh in-character line (max 2 sentences, plain spoken dialogue, no qu
     if (nearFoothold) interactFoothold();
   }
 
+  /* compass target — trials in story order; live guidance inside Trial 3 */
+  function objective() {
+    if (wst.trialActive) {
+      let best = null, bd = Infinity;
+      trialEnemies.forEach((e) => {
+        if (e.dead) return;
+        const d = Math.hypot(e.group.position.x - player.position.x, e.group.position.z - player.position.z);
+        if (d < bd) { bd = d; best = e; }
+      });
+      return best ? { x: best.group.position.x, z: best.group.position.z, label: 'Clear the wave' } : null;
+    }
+    if (wst.trial2Active) return { x: TRIAL2.x, z: TRIAL2.altarZ, label: 'The Altar — do not strike back' };
+    if (wst.trial3Active) {
+      const wf = wardenFragment;
+      if (wf.state === 'idle') return { x: wf.group.position.x, z: wf.group.position.z, label: 'Signal the Warden Fragment' };
+      if (wf.state === 'following') return { x: beaconA.x, z: beaconA.z, label: 'Lead it to a beacon' };
+      const other = wf.heldBeacon === beaconA ? beaconB : beaconA;
+      return { x: other.x, z: other.z, label: 'Hold the other beacon' };
+    }
+    if (!wst.trialComplete) return { x: TRIAL_CENTER.x, z: TRIAL_CENTER.z + 12, label: 'Trial of Strength' };
+    if (!wst.trial2Complete) return { x: TRIAL2.x, z: TRIAL2.entranceZ, label: 'Trial of Restraint' };
+    if (!wst.trial3Complete) return { x: TRIAL3.entranceX, z: TRIAL3.entranceZ, label: 'Trial of Cooperation' };
+    return null;
+  }
+
   /* what should the player do next? (trials in story order) */
   function nextHint() {
     if (wst.trialActive)
@@ -3969,6 +4159,10 @@ Write ONE fresh in-character line (max 2 sentences, plain spoken dialogue, no qu
     updateFootholds(dt);
     updateAmbientParticles(dt);
     updateProximity();
+    // colder score swells when anything hostile is close (ported behavior)
+    const tension = enemies.some((en) => !en.dead && en.active &&
+      Math.hypot(en.group.position.x - player.position.x, en.group.position.z - player.position.z) < 14) ? 1 : 0;
+    Engine.audio.music.update(dt, { tension });
     // gentle hint if trial progress has stalled
     if (!Engine.state.isDead && !Engine.player.inCutscene) {
       const snap = [wst.trialComplete, wst.trial2Complete, wst.trial3Complete, wst.trialActive, wst.trial2Active, wst.trial3Active, wst.trialWave, wardenFragment ? wardenFragment.state : ''].join('|');
@@ -3982,7 +4176,7 @@ Write ONE fresh in-character line (max 2 sentences, plain spoken dialogue, no qu
     }
   }
   return { id: 'hollowVerge', name: 'The Hollow Verge', scene, mood, build, enter, exit, update, heightAt,
-    getCombatTargets, interceptAttack, onInteract, onDeath, onRespawn,
+    getCombatTargets, interceptAttack, onInteract, onDeath, onRespawn, objective,
     getSaveData, applySaveData,
     obstacles, bound: 55, state: wst,
     getLandmarks() { return [
@@ -4021,6 +4215,7 @@ function animate() {
   if (Engine.state.paused) { composer.render(); Engine.input.endFrame(); return; }
   w.update(dt);
   Engine.combat.update(dt);    // tracers / rockets / recoil in the active world
+  Engine.compass.update();     // objective pointer
   gradePass.uniforms.time.value += dt;
   updateHUD();
   composer.render();
