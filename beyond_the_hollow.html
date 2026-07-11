@@ -912,13 +912,20 @@ Engine.player = (() => {
       // camera sits at +(sin,cos)*D: screen-forward = (-sin,-cos), screen-right = (cos,-sin)
       const wx = mx * cos + mz * sin, wz = -mx * sin + mz * cos;
       const nx = mesh.position.x + wx * speed * dt, nz = mesh.position.z + wz * speed * dt;
-      // collision vs world obstacles (trees, ruins, wreck...)
+      // collision vs world obstacles (trees, ruins, wreck...). If we are ALREADY
+      // inside an obstacle (structure built on top of us, bad disembark spot...),
+      // moves that increase distance from it are allowed — you can always escape.
       let blocked = false;
       if (world && world.obstacles) {
         for (const obs of world.obstacles) {
-          const dx = nx - obs.position.x, dz = nz - obs.position.z;
+          const dxN = nx - obs.position.x, dzN = nz - obs.position.z;
           const r = 0.5 + (obs.userData.radius || 0.6);
-          if (dx * dx + dz * dz < r * r) { blocked = true; break; }
+          if (dxN * dxN + dzN * dzN < r * r) {
+            const dxC = mesh.position.x - obs.position.x, dzC = mesh.position.z - obs.position.z;
+            const curD2 = dxC * dxC + dzC * dzC;
+            if (curD2 < r * r && (dxN * dxN + dzN * dzN) >= curD2) continue; // escaping the overlap
+            blocked = true; break;
+          }
         }
       }
       if (!blocked) { mesh.position.x = nx; mesh.position.z = nz; }
@@ -927,6 +934,21 @@ Engine.player = (() => {
       if (sprinting) s.stamina = Math.max(0, s.stamina - 22 * dt);
     }
     if (!sprinting) s.stamina = Math.min(s.maxStamina, s.stamina + 12 * dt);
+    // depenetration: if wedged inside an obstacle, ease out automatically
+    if (world && world.obstacles) {
+      for (const obs of world.obstacles) {
+        const r = 0.5 + (obs.userData.radius || 0.6);
+        const dx = mesh.position.x - obs.position.x, dz = mesh.position.z - obs.position.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < r * r) {
+          let d = Math.sqrt(d2), ux = dx, uz = dz;
+          if (d < 0.05) { const a = Math.random() * Math.PI * 2; ux = Math.cos(a); uz = Math.sin(a); d = 1; } // dead-center: pick any way out
+          const push = Math.min(r - Math.sqrt(d2), 3 * dt);
+          mesh.position.x += (ux / d) * push;
+          mesh.position.z += (uz / d) * push;
+        }
+      }
+    }
     // out-of-combat recovery: stay clear of hostiles long enough and HP returns
     if (world && world.threatNear && world.threatNear()) safeTimer = 0;
     else safeTimer += dt;
@@ -2122,8 +2144,12 @@ const WorldA = (() => {
     if (!def) return;
     if (wst.wood < def.cost.wood || wst.scrap < def.cost.scrap) return;
     if (builtCounts[defId] >= def.maxCount) return;
-    const slot = buildSlots.find((s) => !s.filled);
-    if (!slot) return;
+    const slot = buildSlots.find((sl) => !sl.filled &&
+      Math.hypot(player.position.x - sl.x, player.position.z - sl.z) > (Math.max(def.size[0], def.size[2]) / 2 + 0.9));
+    if (!slot) {
+      if (buildSlots.some((sl) => !sl.filled)) Engine.toast('Stand clear of the build site first.');
+      return;
+    }
     wst.wood -= def.cost.wood;
     wst.scrap -= def.cost.scrap;
     builtCounts[defId] += 1;
@@ -2768,7 +2794,18 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
       return;
     }
     wst.piloting = false;
-    player.position.set(ship.position.x + 1.6, groundY, ship.position.z);
+    // disembark at the first clear spot around the hull (never inside a tree/rock)
+    let placed = false;
+    for (let i = 0; i < 8 && !placed; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const px = ship.position.x + Math.cos(a) * 2.2, pz = ship.position.z + Math.sin(a) * 2.2;
+      const clear = !obstacles.some((obs) => {
+        const rr = 0.5 + (obs.userData.radius || 0.6);
+        return (px - obs.position.x) ** 2 + (pz - obs.position.z) ** 2 < rr * rr;
+      });
+      if (clear) { player.position.set(px, heightAt(px, pz), pz); placed = true; }
+    }
+    if (!placed) player.position.set(ship.position.x + 1.6, groundY, ship.position.z);
     player.visible = true;
     document.getElementById('hud').style.display = '';
     document.getElementById('flightHud').style.display = 'none';
