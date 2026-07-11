@@ -25,9 +25,11 @@ That's it. An internet connection is needed on first load (Three.js comes from a
 | Jump | `Space` |
 | Interact / talk / gather / build | `E` |
 | Attack | `F` |
+| Heavy strike (2.2× damage, wide arc) | `G` |
+| Spin attack (hits all around you) | `Q` |
 | Ship flight | `WASD` pitch/yaw · `Q/E` roll · `Space`/`Shift` throttle · `F` fire |
 
-All keys are remappable in **Settings**, which also has difficulty, colorblind mode, graphics quality, text size, and subtitles. A control reference sits at the bottom of the screen, and the game offers gentle hints if you're stuck.
+Stay clear of hostiles for ~35 seconds and your health regenerates on its own (the HP bar glows green while it does). All keys are remappable in **Settings**, which also has difficulty, colorblind mode, graphics quality, text size, and subtitles. A control reference sits at the bottom of the screen, and the game offers gentle hints if you're stuck.
 
 ## The game
 

@@ -56,6 +56,8 @@
   .bar { width: 190px; height: 12px; border: 1px solid rgba(255,255,255,.35); border-radius: 6px; overflow: hidden; margin-bottom: 6px; background: rgba(0,0,0,.35); }
   .bar > i { display: block; height: 100%; transition: width .15s ease; }
   #hpFill { background: linear-gradient(90deg,#e2574c,#f0897f); }
+  #hpFill.regen { background: linear-gradient(90deg,#e2574c,#7fe0b0); box-shadow: 0 0 10px rgba(111,224,197,.7); animation: regenPulse 1.6s ease-in-out infinite; }
+  @keyframes regenPulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.35); } }
   #stFill { background: linear-gradient(90deg,#4fd18a,#a8f0c8); }
   #worldName { font-size: 12px; letter-spacing: 3px; text-transform: uppercase; opacity: .65; margin-bottom: 8px; }
   #timeBadge { font-size: 11px; opacity: .55; margin-bottom: 6px; }
@@ -625,6 +627,8 @@ Engine.audio = (() => {
     land:  () => { tone(140, 0.12, 'sine', 0.09, 80); noise(0.08, 0.08, 500); },
     beacon:() => [523, 784].forEach((f, i) => setTimeout(() => tone(f, 0.3, 'sine', 0.1), i * 100)),
     build: () => [523, 659, 784].forEach((f, i) => setTimeout(() => tone(f, 0.25, 'triangle', 0.09), i * 80)),
+    heavy: () => { noise(0.26, 0.14, 1100); tone(90, 0.26, 'sawtooth', 0.1, 45); },
+    spin:  () => { noise(0.32, 0.12, 1900); tone(160, 0.2, 'sine', 0.07, 320); },
     gunshot:  () => { noise(0.06, 0.16, 2600); tone(220, 0.05, 'square', 0.08, 90); },
     rocket:   () => { noise(0.3, 0.14, 500); tone(90, 0.4, 'sawtooth', 0.1, 50); },
     explosion:() => { noise(0.5, 0.22, 350); tone(70, 0.6, 'sawtooth', 0.16, 35); },
@@ -790,7 +794,7 @@ Engine.rig = (() => {
 /* Remappable controls: action -> key code. Persisted; read by Engine.input. */
 Engine.keybinds = (() => {
   // Matches the originals: F = attack, Space = jump, E = interact.
-  const DEFAULTS = { forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD', sprint: 'ShiftLeft', attack: 'KeyF', jump: 'Space', interact: 'KeyE' };
+  const DEFAULTS = { forward: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD', sprint: 'ShiftLeft', attack: 'KeyF', heavy: 'KeyG', spin: 'KeyQ', jump: 'Space', interact: 'KeyE' };
   let map = { ...DEFAULTS };
   const get = (a) => map[a];
   const all = () => ({ ...map });
@@ -808,7 +812,7 @@ Engine.input = (() => {
   let capture = null; // when set, next keydown rebinds this action instead of playing
   // arrow keys always work for movement alongside the bound keys (both-hands play)
   const MOVE_ALIASES = { forward: 'ArrowUp', back: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' };
-  const io = { keys, look: { dx: 0, dy: 0 }, interactPressed: false, attackPressed: false, jumpPressed: false };
+  const io = { keys, look: { dx: 0, dy: 0 }, interactPressed: false, attackPressed: false, heavyPressed: false, spinPressed: false, jumpPressed: false };
   io.down = (action) => !!keys[Engine.keybinds.get(action)] || !!keys[MOVE_ALIASES[action]];
   io.beginCapture = (action, cb) => { capture = { action, cb }; };
   window.addEventListener('keydown', (e) => {
@@ -818,6 +822,8 @@ Engine.input = (() => {
     keys[e.code] = true;
     if (e.code === Engine.keybinds.get('interact')) io.interactPressed = true;
     if (e.code === Engine.keybinds.get('attack')) io.attackPressed = true;
+    if (e.code === Engine.keybinds.get('heavy')) io.heavyPressed = true;
+    if (e.code === Engine.keybinds.get('spin')) io.spinPressed = true;
     if (e.code === Engine.keybinds.get('jump')) io.jumpPressed = true;
   });
   window.addEventListener('keyup', (e) => { keys[e.code] = false; });
@@ -832,7 +838,7 @@ Engine.input = (() => {
     lastX = e.clientX; lastY = e.clientY;
   });
   // Called once per frame by the loop to consume edge-triggered inputs.
-  function endFrame() { io.look.dx = 0; io.look.dy = 0; io.interactPressed = false; io.attackPressed = false; io.jumpPressed = false; }
+  function endFrame() { io.look.dx = 0; io.look.dy = 0; io.interactPressed = false; io.attackPressed = false; io.heavyPressed = false; io.spinPressed = false; io.jumpPressed = false; }
   return Object.assign(io, { endFrame });
 })();
 
@@ -852,6 +858,10 @@ Engine.player = (() => {
   let walkPhase = 0, bobOffset = 0, attackSwingTimer = 0, landSquashTimer = 0, squashBase = 1, lastFootstep = 0;
   let shakeTime = 0, shakeMag = 0;
   let deathAnimTimer = 0;
+  let spinAnimTimer = 0;
+  // out-of-combat recovery: HP trickles back after staying clear of hostiles
+  const regenCfg = { delay: 35, rate: 3 };   // seconds threat-free before regen; HP per second
+  let safeTimer = 0, regenActive = false;
   // lightweight cutscene camera (rival encounter, summon)
   let cutsceneTimer = 0, cutsceneDuration = 0, cutsceneTarget = null;
 
@@ -917,6 +927,11 @@ Engine.player = (() => {
       if (sprinting) s.stamina = Math.max(0, s.stamina - 22 * dt);
     }
     if (!sprinting) s.stamina = Math.min(s.maxStamina, s.stamina + 12 * dt);
+    // out-of-combat recovery: stay clear of hostiles long enough and HP returns
+    if (world && world.threatNear && world.threatNear()) safeTimer = 0;
+    else safeTimer += dt;
+    regenActive = safeTimer >= regenCfg.delay && s.hp < s.maxHp;
+    if (regenActive) s.hp = Math.min(s.maxHp, s.hp + regenCfg.rate * dt);
     // clamp to world bounds
     if (world && world.bound) {
       mesh.position.x = Math.max(-world.bound, Math.min(world.bound, mesh.position.x));
@@ -941,14 +956,31 @@ Engine.player = (() => {
       }
     }
     animateRig(dt, len > 0.001, sprinting);
+    if (spinAnimTimer > 0) {
+      spinAnimTimer -= dt;
+      const t = 1 - Math.max(0, spinAnimTimer) / 0.4;
+      mesh.rotation.y = s.yaw + t * Math.PI * 2;
+      const parts = world && world.playerParts;
+      if (parts) { parts.leftArm.rotation.z = 1.1; parts.rightArm.rotation.z = -1.1; }
+    } else if (world && world.playerParts) {
+      world.playerParts.leftArm.rotation.z = 0;
+    }
     // ground follow (world supplies terrain height) + walk bob + jump arc
     const gy = world && world.heightAt ? world.heightAt(mesh.position.x, mesh.position.z) : 0;
     mesh.position.y = gy + bobOffset + airborneOffset;
-    // attack — full weapon dispatch lives in Engine.combat (melee/ranged/explosive)
+    // attacks — quick (F), heavy (G), spin (Q); dispatch lives in Engine.combat
     if (s.attackCooldown > 0) s.attackCooldown -= dt;
-    if (io.attackPressed && s.attackCooldown <= 0 && !(world && world.uiBlocked && world.uiBlocked())) {
+    const canAct = s.attackCooldown <= 0 && !(world && world.uiBlocked && world.uiBlocked());
+    if (io.attackPressed && canAct) {
       attackSwingTimer = 0.28;
       Engine.combat.performAttack();
+    } else if (io.heavyPressed && canAct && s.stamina >= 20) {
+      attackSwingTimer = 0.45;
+      Engine.combat.performHeavy();
+    } else if (io.spinPressed && canAct && s.stamina >= 25) {
+      attackSwingTimer = 0.3;
+      spinAnimTimer = 0.4;
+      Engine.combat.performSpin();
     }
     // interact -> hand off to world
     if (io.interactPressed && world && world.onInteract) world.onInteract();
@@ -1046,6 +1078,7 @@ Engine.player = (() => {
 
   function hurt(amount) {
     const s = Engine.state; if (s.isDead) return;
+    safeTimer = 0;   // taking damage restarts the out-of-combat recovery clock
     s.hp = Math.max(0, s.hp - amount * (DIFFICULTY_MULT[s.difficulty] || 1));
     Engine.audio.sfx.hurt(); triggerHurtFlash(); shake(0.22, 0.25);
     if (s.hp <= 0) {
@@ -1067,8 +1100,9 @@ Engine.player = (() => {
     camera.position.copy(target.clone().add(off)); camera.lookAt(target);
   }
 
-  return { attach, update, updateCamera, snapCamera, startCutscene, hurt, revive, shake, CAM_DIST, ATTACK,
-    get inCutscene() { return cutsceneTimer > 0; } };
+  return { attach, update, updateCamera, snapCamera, startCutscene, hurt, revive, shake, CAM_DIST, ATTACK, regenCfg,
+    get inCutscene() { return cutsceneTimer > 0; },
+    get regenerating() { return regenActive; } };
 })();
 
 function triggerHurtFlash() {
@@ -1119,7 +1153,7 @@ Engine.updateKbHint = (mode) => {
     return;
   }
   const L = (a) => Engine.keybinds.label(Engine.keybinds.get(a));
-  el.textContent = `${L('forward')}${L('left')}${L('back')}${L('right')} / arrow keys move · ${L('sprint')} sprint · ${L('jump')} jump · drag mouse to look/turn · ${L('interact')} interact · ${L('attack')} attack`;
+  el.textContent = `${L('forward')}${L('left')}${L('back')}${L('right')} / arrow keys move · ${L('sprint')} sprint · ${L('jump')} jump · drag mouse to look/turn · ${L('interact')} interact · ${L('attack')} attack · ${L('heavy')} heavy · ${L('spin')} spin`;
 };
 
 /* ---- top-center toast (weapon unlocks, ship ready, ...) ---- */
@@ -1232,6 +1266,60 @@ Engine.combat = (() => {
     } else if (def.type === 'explosive') {
       fireRocket(def);
     }
+  }
+
+  // melee stats for maneuvers: the equipped melee weapon, or bare-handed basics
+  function meleeBase() {
+    const def = Engine.armory.DEFS.find((d) => d.id === Engine.armory.st.equipped);
+    return (def && def.type === 'melee') ? def : { damage: 20, range: 2.2, cooldown: 0.6 };
+  }
+
+  /* heavy strike: wound-up blow — 2.2x damage, wider arc, hard knockback */
+  function performHeavy() {
+    const s = Engine.state, w = world();
+    if (!w || s.isDead) return;
+    if (w.interceptAttack && w.interceptAttack()) return;   // trials judge ALL attacks
+    const base = meleeBase();
+    s.attackCooldown = base.cooldown * 2.2;
+    s.stamina = Math.max(0, s.stamina - 20);
+    Engine.audio.sfx.heavy();
+    const forwardX = Math.sin(s.yaw), forwardZ = Math.cos(s.yaw);
+    const arc = Math.cos(70 * Math.PI / 180);   // wider than the quick attack
+    const p = w.player.position;
+    let landedHit = false;
+    getLiveTargets().forEach((t) => {
+      const dx = t.position.x - p.x, dz = t.position.z - p.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > base.range + 0.4) return;
+      const dirLen = dist || 0.001;
+      const dot = (dx / dirLen) * forwardX + (dz / dirLen) * forwardZ;
+      if (dot < arc) return;
+      damageTarget(t, base.damage * 2.2, { x: dx / dirLen, z: dz / dirLen }, 2.4);
+      landedHit = true;
+    });
+    if (landedHit) Engine.player.shake(0.22, 0.2);
+  }
+
+  /* spin attack: full 360-degree sweep — normal damage to everything close */
+  function performSpin() {
+    const s = Engine.state, w = world();
+    if (!w || s.isDead) return;
+    if (w.interceptAttack && w.interceptAttack()) return;
+    const base = meleeBase();
+    s.attackCooldown = base.cooldown * 1.8;
+    s.stamina = Math.max(0, s.stamina - 25);
+    Engine.audio.sfx.spin();
+    const p = w.player.position;
+    let landedHit = false;
+    getLiveTargets().forEach((t) => {
+      const dx = t.position.x - p.x, dz = t.position.z - p.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > base.range + 0.2) return;
+      const dirLen = dist || 0.001;
+      damageTarget(t, base.damage, { x: dx / dirLen, z: dz / dirLen }, 1.6);
+      landedHit = true;
+    });
+    if (landedHit) Engine.player.shake(0.16, 0.18);
   }
 
   function fireGun(def) {
@@ -1354,7 +1442,7 @@ Engine.combat = (() => {
     }
   }
 
-  return { performAttack, damageTarget, getLiveTargets, spawnTracer, update };
+  return { performAttack, performHeavy, performSpin, damageTarget, getLiveTargets, spawnTracer, update };
 })();
 
 /* ==========================================================================
@@ -3235,8 +3323,18 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
     return null;
   }
   function talking() { return wst.dialogueOpen; }
+  // any hostile chasing, or simply close by, keeps the recovery clock at zero
+  function threatNear() {
+    if (enemies.some((en) => !en.dead &&
+      (en.state === 'chase' || Math.hypot(en.group.position.x - player.position.x, en.group.position.z - player.position.z) < 10))) return true;
+    if (Engine.state.flags.rivalPath === 'hostile') {
+      return Object.values(rivalNpcs).some((r) => !r.dead && r.active &&
+        Math.hypot(r.group.position.x - player.position.x, r.group.position.z - player.position.z) < 12);
+    }
+    return false;
+  }
   return { id: 'kessasReach', name: "Kessa's Reach", scene, mood, build, enter, exit, update, heightAt,
-    getTargets, getCombatTargets, onInteract, onLand, onDeath, onRespawn, uiBlocked, talking, objective,
+    getTargets, getCombatTargets, onInteract, onLand, onDeath, onRespawn, uiBlocked, talking, objective, threatNear,
     getSaveData, applySaveData,
     obstacles, bound: 48, state: wst, RUINS_CENTER,
     spawnDust: (x, y, z, count, color, opacity) => spawnDustBurst(x, y, z, count, color, opacity),
@@ -4053,6 +4151,10 @@ Write ONE fresh in-character line (max 2 sentences, plain spoken dialogue, no qu
     enemies.forEach((en) => { if (!en.dead && en.active) targets.push({ kind: en.kind, ref: en, position: en.group.position }); });
     return targets;
   }
+  function threatNear() {
+    return enemies.some((en) => !en.dead && en.active &&
+      Math.hypot(en.group.position.x - player.position.x, en.group.position.z - player.position.z) < 14);
+  }
   // ANY attack during Restraint fails it; striking the Warden fails Cooperation.
   function interceptAttack() {
     if (wst.trial2Active) { failTrial2(); return true; }
@@ -4176,7 +4278,7 @@ Write ONE fresh in-character line (max 2 sentences, plain spoken dialogue, no qu
     }
   }
   return { id: 'hollowVerge', name: 'The Hollow Verge', scene, mood, build, enter, exit, update, heightAt,
-    getCombatTargets, interceptAttack, onInteract, onDeath, onRespawn, objective,
+    getCombatTargets, interceptAttack, onInteract, onDeath, onRespawn, objective, threatNear,
     getSaveData, applySaveData,
     obstacles, bound: 55, state: wst,
     getLandmarks() { return [
@@ -4203,7 +4305,9 @@ document.getElementById('btnRespawn').onclick = () => {
    ========================================================================== */
 function updateHUD() {
   const s = Engine.state;
-  document.getElementById('hpFill').style.width = (100 * s.hp / s.maxHp) + '%';
+  const hpFill = document.getElementById('hpFill');
+  hpFill.style.width = (100 * s.hp / s.maxHp) + '%';
+  hpFill.classList.toggle('regen', Engine.player.regenerating);
   document.getElementById('stFill').style.width = (100 * s.stamina / s.maxStamina) + '%';
 }
 
