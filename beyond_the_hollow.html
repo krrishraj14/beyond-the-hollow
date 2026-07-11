@@ -256,6 +256,14 @@
   #fuelFill { background: linear-gradient(90deg,#6fd0e0,#8ff0ff); box-shadow: 0 0 8px rgba(111,208,224,.6); display: block; height: 100%; }
   #flightSpeedBadge { align-self: flex-start; background: rgba(14,18,28,.8); padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; border: 1px solid rgba(255,255,255,.2); margin-top: 5px; }
   #btnExitShip { position: fixed; bottom: 60px; left: 16px; z-index: 21; display: none; cursor: pointer; background: rgba(14,18,28,.8); border: 1px solid rgba(255,255,255,.2); color: #e8ecf2; font-size: 12px; font-weight: 700; padding: 10px 16px; border-radius: 20px; }
+  #flightObjective {
+    position: fixed; top: 46px; left: 50%; transform: translateX(-50%);
+    display: none; max-width: 92vw; text-align: center;
+    background: rgba(10,14,22,.85); border: 1px solid rgba(111,208,224,.5); border-radius: 10px;
+    padding: 8px 18px; font-size: calc(15px * var(--text-scale,1)); font-weight: 600;
+    color: #bfeaf5; letter-spacing: .3px; pointer-events: none; z-index: 8;
+  }
+  #flightObjective b { color: #6fd0e0; letter-spacing: 1.5px; font-size: calc(11px * var(--text-scale,1)); display: block; margin-bottom: 2px; }
   #flightControls {
     position: fixed; right: 16px; top: 50%; transform: translateY(-50%);
     display: none; flex-direction: column; gap: 10px; z-index: 20; pointer-events: none;
@@ -400,6 +408,8 @@
   <div id="flightSpeedBadge">Speed: 0</div>
 </div>
 <button id="btnExitShip">Land / Exit Ship</button>
+
+<div id="flightObjective"><b>OBJECTIVE</b><span id="flightObjectiveText"></span></div>
 
 <div id="flightControls">
   <h3>Flight Controls</h3>
@@ -1174,11 +1184,13 @@ Engine.compass = (() => {
       (w.uiBlocked && w.uiBlocked()) || !Engine.state.started;
     const o = blocked ? null : w.objective();
     if (!o || !w.player) { box.style.display = 'none'; return; }
-    const dx = o.x - w.player.position.x;
-    const dz = o.z - w.player.position.z;
+    const origin = (w.compassOrigin && w.compassOrigin()) || w.player.position;
+    const dx = o.x - origin.x;
+    const dz = o.z - origin.z;
     const dist = Math.hypot(dx, dz);
     if (dist < 3.5) { box.style.display = 'none'; return; }
-    const camF = Math.atan2(-Math.sin(Engine.state.camYaw), -Math.cos(Engine.state.camYaw));
+    const facing = w.compassFacing && w.compassFacing();
+    const camF = (facing != null) ? facing : Math.atan2(-Math.sin(Engine.state.camYaw), -Math.cos(Engine.state.camYaw));
     const bearing = Math.atan2(dx, dz);
     let deg = ((camF - bearing) * 180 / Math.PI) % 360;
     if (deg > 180) deg -= 360;
@@ -2840,6 +2852,12 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
     return group;
   }
 
+  function compassOrigin() { return wst.piloting ? ship.position : player.position; }
+  function compassFacing() {
+    if (!wst.piloting) return null;
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(ship.quaternion);
+    return Math.atan2(fwd.x, fwd.z);
+  }
   function boardShip() {
     wst.piloting = true;
     player.visible = false;
@@ -2850,6 +2868,7 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
     document.getElementById('flightHud').style.display = 'flex';
     document.getElementById('btnExitShip').style.display = 'block';
     document.getElementById('flightControls').style.display = 'flex';
+    document.getElementById('flightObjective').style.display = 'block';
     Engine.updateKbHint('flight');
   }
   function exitShip() {
@@ -2877,6 +2896,7 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
     document.getElementById('flightHud').style.display = 'none';
     document.getElementById('btnExitShip').style.display = 'none';
     document.getElementById('flightControls').style.display = 'none';
+    document.getElementById('flightObjective').style.display = 'none';
     Engine.updateKbHint();
   }
   function fireShipWeapon() {
@@ -2962,6 +2982,7 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
     if (shipFireCooldown > 0) shipFireCooldown -= dt;
     document.getElementById('fuelFill').style.width = (wst.shipFuel / wst.maxShipFuel * 100) + '%';
     document.getElementById('flightSpeedBadge').textContent = `Speed: ${Math.round(shipState.speed * 10)}`;
+    document.getElementById('flightObjectiveText').textContent = flightObjective().text;
   }
   function updateShipCamera(dt) {
     const back = new THREE.Vector3(0, 0, 1).applyQuaternion(ship.quaternion).multiplyScalar(9);
@@ -3370,6 +3391,35 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
   function onInteract() { tryInteract(); }
   function uiBlocked() { return wst.dialogueOpen || wst.buildMenuOpen || wst.encounterOpen; }
 
+  /* while flying: what to do next, as banner text + a compass target */
+  function flightObjective() {
+    const f = Engine.state.flags;
+    const r = computeReadiness();
+    if (wst.shipFuel < 25)
+      return { text: 'Fuel low — fly to the colony beacon and hover low to recharge', x: beacon.position.x, z: beacon.position.z, label: 'Colony Beacon' };
+    if (r.combat < 100) {
+      let best = null, bd = Infinity;
+      enemies.forEach((e) => {
+        if (e.dead) return;
+        const d = Math.hypot(e.group.position.x - ship.position.x, e.group.position.z - ship.position.z);
+        if (d < bd) { bd = d; best = e; }
+      });
+      return { text: `Strafe the wildlife with the ship gun (F) — Combat ${Math.round(r.combat)}%`,
+        x: best ? best.group.position.x : 10, z: best ? best.group.position.z : 10, label: 'Hostile wildlife' };
+    }
+    if (!f.visionSeen)
+      return { text: 'Fly east to the ruins, land nearby, and explore them on foot', x: RUINS_CENTER.x, z: RUINS_CENTER.z, label: 'The Ruins' };
+    if (!f.rivalPath)
+      return { text: 'Fly west to Skirmish Ridge and land — something is happening there', x: RIVAL_ENCOUNTER.x, z: RIVAL_ENCOUNTER.z, label: 'Skirmish Ridge' };
+    if (!f.reyesPath)
+      return { text: 'Land at the colony and hear Reyes out', x: beacon.position.x, z: beacon.position.z, label: 'The Colony' };
+    if (!f.oseiDiscoveryDone)
+      return { text: 'Land at the colony — Dr. Osei has something to show you', x: beacon.position.x, z: beacon.position.z, label: 'The Colony' };
+    if (r.colony < 100)
+      return { text: `Land at the colony and build — Colony ${Math.round(r.colony)}%`, x: beacon.position.x, z: beacon.position.z, label: 'Colony Beacon' };
+    return { text: 'Readiness complete — land anywhere. Ashketh is calling.', x: RUINS_CENTER.x, z: RUINS_CENTER.z, label: 'The Ruins' };
+  }
+
   /* compass target — same story ladder as the hints, but with a position */
   function objective() {
     const f = Engine.state.flags;
@@ -3383,7 +3433,8 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
       });
       return best;
     };
-    if (wst.piloting || wst.summoned) return null;
+    if (wst.piloting) { const fo = flightObjective(); return { x: fo.x, z: fo.z, label: fo.label }; }
+    if (wst.summoned) return null;
     if (!npcState.reyes.current && !npcState.osei.current)
       return nearest([{ x: reyesNpc.position.x, z: reyesNpc.position.z, label: 'Talk to the crew' },
                       { x: oseiNpc.position.x, z: oseiNpc.position.z, label: 'Talk to the crew' }]);
@@ -3437,6 +3488,7 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
       document.getElementById('flightHud').style.display = 'none';
       document.getElementById('btnExitShip').style.display = 'none';
       document.getElementById('flightControls').style.display = 'none';
+      document.getElementById('flightObjective').style.display = 'none';
       Engine.updateKbHint();
     }
     player.position.set(0, heightAt(0, 5), 5);
@@ -3453,6 +3505,7 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
   }
   return { id: 'kessasReach', name: "Kessa's Reach", scene, mood, build, enter, exit, update, heightAt,
     getTargets, getCombatTargets, onInteract, onLand, onDeath, onRespawn, uiBlocked, talking, objective, threatNear, rescue,
+    compassOrigin, compassFacing,
     getSaveData, applySaveData,
     obstacles, bound: 48, state: wst, RUINS_CENTER,
     spawnDust: (x, y, z, count, color, opacity) => spawnDustBurst(x, y, z, count, color, opacity),
