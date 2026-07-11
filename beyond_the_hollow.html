@@ -825,6 +825,7 @@ Engine.input = (() => {
     if (e.code === Engine.keybinds.get('heavy')) io.heavyPressed = true;
     if (e.code === Engine.keybinds.get('spin')) io.spinPressed = true;
     if (e.code === Engine.keybinds.get('jump')) io.jumpPressed = true;
+    if (e.code === 'KeyH' && Engine.rescue) Engine.rescue();
   });
   window.addEventListener('keyup', (e) => { keys[e.code] = false; });
   // Drag-look (matches the originals' mouse handling; avoids pointer-lock in iframes).
@@ -875,6 +876,7 @@ Engine.player = (() => {
     cutsceneTarget = targetPos.clone();
     cutsceneTimer = duration; cutsceneDuration = duration;
   }
+  function cancelCutscene() { cutsceneTimer = 0; }
 
   function update(dt) {
     const s = Engine.state, io = Engine.input;
@@ -1122,7 +1124,7 @@ Engine.player = (() => {
     camera.position.copy(target.clone().add(off)); camera.lookAt(target);
   }
 
-  return { attach, update, updateCamera, snapCamera, startCutscene, hurt, revive, shake, CAM_DIST, ATTACK, regenCfg,
+  return { attach, update, updateCamera, snapCamera, startCutscene, cancelCutscene, hurt, revive, shake, CAM_DIST, ATTACK, regenCfg,
     get inCutscene() { return cutsceneTimer > 0; },
     get regenerating() { return regenActive; } };
 })();
@@ -1175,8 +1177,45 @@ Engine.updateKbHint = (mode) => {
     return;
   }
   const L = (a) => Engine.keybinds.label(Engine.keybinds.get(a));
-  el.textContent = `${L('forward')}${L('left')}${L('back')}${L('right')} / arrow keys move · ${L('sprint')} sprint · ${L('jump')} jump · drag mouse to look/turn · ${L('interact')} interact · ${L('attack')} attack · ${L('heavy')} heavy · ${L('spin')} spin`;
+  el.textContent = `${L('forward')}${L('left')}${L('back')}${L('right')} / arrow keys move · ${L('sprint')} sprint · ${L('jump')} jump · drag mouse to look/turn · ${L('interact')} interact · ${L('attack')} attack · ${L('heavy')} heavy · ${L('spin')} spin · H rescue`;
 };
+
+/* ==========================================================================
+   Engine.rescue — press H when something has gone wrong: cancels any
+   cutscene, closes lingering world UI, clears a phantom pause, surfaces the
+   respawn screen if you are dead without one, and returns you to the world
+   spawn point. Never skips modal story choices (those have clickable
+   buttons and are not "stuck").
+   ========================================================================== */
+Engine.rescue = () => {
+  const w = WorldManager.current;
+  if (!w || !Engine.state.started) return;
+  Engine.player.cancelCutscene();
+  if (Engine.state.paused) {
+    // only clear pause if no pausing panel is actually on screen
+    const anyPanelOpen = ['settingsOverlay', 'logOverlay', 'mapOverlay', 'armoryOverlay', 'startOverlay']
+      .some((id) => document.getElementById(id).style.display === 'flex');
+    if (!anyPanelOpen) Engine.state.paused = false;
+  }
+  if (w.rescue) w.rescue();
+  if (Engine.state.isDead) document.getElementById('gameOverOverlay').style.display = 'flex';
+  Engine.player.snapCamera();
+  Engine.toast('Rescued — returned to safety. (H does this anytime)', 4200);
+};
+
+/* ---- watchdog: a paused game with no panel on screen unfreezes itself ---- */
+(function pauseWatchdog() {
+  let stuckSince = 0;
+  setInterval(() => {
+    const s = Engine.state;
+    if (!s.paused || !s.started) { stuckSince = 0; return; }
+    const anyPanelOpen = ['settingsOverlay', 'logOverlay', 'mapOverlay', 'armoryOverlay', 'startOverlay']
+      .some((id) => document.getElementById(id).style.display === 'flex');
+    if (anyPanelOpen) { stuckSince = 0; return; }
+    stuckSince += 1;
+    if (stuckSince >= 2) { s.paused = false; stuckSince = 0; }
+  }, 1000);
+})();
 
 /* ---- top-center toast (weapon unlocks, ship ready, ...) ---- */
 Engine.toast = (text, ms) => {
@@ -3360,6 +3399,19 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
     return null;
   }
   function talking() { return wst.dialogueOpen; }
+  function rescue() {
+    closeDialogue(); closeBuildMenu();
+    if (wst.piloting) {
+      // force a safe landing: hand the Commander back at the colony
+      wst.piloting = false;
+      player.visible = true;
+      document.getElementById('hud').style.display = '';
+      document.getElementById('flightHud').style.display = 'none';
+      document.getElementById('btnExitShip').style.display = 'none';
+      Engine.updateKbHint();
+    }
+    player.position.set(0, heightAt(0, 5), 5);
+  }
   // any hostile chasing, or simply close by, keeps the recovery clock at zero
   function threatNear() {
     if (enemies.some((en) => !en.dead &&
@@ -3371,7 +3423,7 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
     return false;
   }
   return { id: 'kessasReach', name: "Kessa's Reach", scene, mood, build, enter, exit, update, heightAt,
-    getTargets, getCombatTargets, onInteract, onLand, onDeath, onRespawn, uiBlocked, talking, objective, threatNear,
+    getTargets, getCombatTargets, onInteract, onLand, onDeath, onRespawn, uiBlocked, talking, objective, threatNear, rescue,
     getSaveData, applySaveData,
     obstacles, bound: 48, state: wst, RUINS_CENTER,
     spawnDust: (x, y, z, count, color, opacity) => spawnDustBurst(x, y, z, count, color, opacity),
@@ -4192,6 +4244,9 @@ Write ONE fresh in-character line (max 2 sentences, plain spoken dialogue, no qu
     return enemies.some((en) => !en.dead && en.active &&
       Math.hypot(en.group.position.x - player.position.x, en.group.position.z - player.position.z) < 14);
   }
+  function rescue() {
+    player.position.set(0, 0, 5);   // trials stay as they are; just get clear
+  }
   // ANY attack during Restraint fails it; striking the Warden fails Cooperation.
   function interceptAttack() {
     if (wst.trial2Active) { failTrial2(); return true; }
@@ -4315,7 +4370,7 @@ Write ONE fresh in-character line (max 2 sentences, plain spoken dialogue, no qu
     }
   }
   return { id: 'hollowVerge', name: 'The Hollow Verge', scene, mood, build, enter, exit, update, heightAt,
-    getCombatTargets, interceptAttack, onInteract, onDeath, onRespawn, objective, threatNear,
+    getCombatTargets, interceptAttack, onInteract, onDeath, onRespawn, objective, threatNear, rescue,
     getSaveData, applySaveData,
     obstacles, bound: 55, state: wst,
     getLandmarks() { return [
