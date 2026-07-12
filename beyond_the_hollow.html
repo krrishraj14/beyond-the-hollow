@@ -1203,6 +1203,25 @@ Engine.compass = (() => {
   return { update };
 })();
 
+/* ==========================================================================
+   Engine.objectiveBanner — the persistent OBJECTIVE line at the top of the
+   screen, in both worlds and in flight. Worlds supply objectiveText().
+   ========================================================================== */
+Engine.objectiveBanner = (() => {
+  function update() {
+    const box = document.getElementById('flightObjective');
+    if (!box) return;
+    const w = WorldManager.current;
+    const blocked = !w || !Engine.state.started || Engine.state.isDead ||
+      Engine.player.inCutscene || (w.uiBlocked && w.uiBlocked());
+    const text = (blocked || !w.objectiveText) ? null : w.objectiveText();
+    if (!text) { box.style.display = 'none'; return; }
+    document.getElementById('flightObjectiveText').textContent = text;
+    box.style.display = 'block';
+  }
+  return { update };
+})();
+
 /* ---- always-on controls reference (bottom of screen) ----------------------
    Reads the live keybind map so remapped keys show correctly; switches to
    the flight scheme while piloting the ship. */
@@ -2914,7 +2933,6 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
     document.getElementById('flightHud').style.display = 'flex';
     document.getElementById('btnExitShip').style.display = 'block';
     document.getElementById('flightControls').style.display = 'flex';
-    document.getElementById('flightObjective').style.display = 'block';
     Engine.updateKbHint('flight');
   }
   function exitShip() {
@@ -2942,7 +2960,6 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
     document.getElementById('flightHud').style.display = 'none';
     document.getElementById('btnExitShip').style.display = 'none';
     document.getElementById('flightControls').style.display = 'none';
-    document.getElementById('flightObjective').style.display = 'none';
     Engine.updateKbHint();
   }
   function fireShipWeapon() {
@@ -3028,7 +3045,6 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
     if (shipFireCooldown > 0) shipFireCooldown -= dt;
     document.getElementById('fuelFill').style.width = (wst.shipFuel / wst.maxShipFuel * 100) + '%';
     document.getElementById('flightSpeedBadge').textContent = `Speed: ${Math.round(shipState.speed * 10)}`;
-    document.getElementById('flightObjectiveText').textContent = flightObjective().text;
   }
   function updateShipCamera(dt) {
     const back = new THREE.Vector3(0, 0, 1).applyQuaternion(ship.quaternion).multiplyScalar(9);
@@ -3437,6 +3453,23 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
   function onInteract() { tryInteract(); }
   function uiBlocked() { return wst.dialogueOpen || wst.buildMenuOpen || wst.encounterOpen; }
 
+  /* the always-on objective banner (piloting has its own ladder) */
+  function objectiveText() {
+    if (wst.piloting) return flightObjective().text;
+    if (wst.summoned) return null;
+    const f = Engine.state.flags;
+    const r = computeReadiness();
+    if (!npcState.reyes.current && !npcState.osei.current) return 'Talk to your crew — walk to Reyes or Dr. Osei and press E';
+    if (wst.wood === 0 && wst.scrap === 0 && wst.colonyStrength === 0) return 'Gather resources — press E at the glowing nodes';
+    if (!f.reyesPath) return 'Hear Reyes out — keep talking to him (E)';
+    if (!f.visionSeen) return 'Explore the ruins to the east — follow the compass';
+    if (!f.oseiDiscoveryDone) return 'Dr. Osei has something to show you — talk to her';
+    if (!f.rivalPath) return 'Investigate Skirmish Ridge to the west';
+    if (r.colony < 100) return `Build at the colony beacon — Colony ${Math.round(r.colony)}%`;
+    if (r.combat < 100) return `Hunt skitterlings (F) — Combat ${Math.round(r.combat)}%`;
+    return 'Readiness complete — Ashketh is about to call';
+  }
+
   /* while flying: what to do next, as banner text + a compass target */
   function flightObjective() {
     const f = Engine.state.flags;
@@ -3534,7 +3567,6 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
       document.getElementById('flightHud').style.display = 'none';
       document.getElementById('btnExitShip').style.display = 'none';
       document.getElementById('flightControls').style.display = 'none';
-      document.getElementById('flightObjective').style.display = 'none';
       Engine.updateKbHint();
     }
     player.position.set(0, heightAt(0, 5), 5);
@@ -3551,7 +3583,7 @@ Write ONE fresh in-character line this character might say right now (max 2 sent
   }
   return { id: 'kessasReach', name: "Kessa's Reach", scene, mood, build, enter, exit, update, heightAt,
     getTargets, getCombatTargets, onInteract, onLand, onDeath, onRespawn, uiBlocked, talking, objective, threatNear, rescue,
-    compassOrigin, compassFacing,
+    compassOrigin, compassFacing, objectiveText,
     getSaveData, applySaveData,
     obstacles, bound: 48, state: wst, RUINS_CENTER,
     spawnDust: (x, y, z, count, color, opacity) => spawnDustBurst(x, y, z, count, color, opacity),
@@ -3587,6 +3619,7 @@ const WorldB = (() => {
     trial2Active: false, trial2Complete: false,
     trial3Active: false, trial3Complete: false, trial3HoldTimer: 0,
     thresholdTriggered: false,
+    grace: 0,   // arrival grace: roamers hold back while the player gets oriented
   };
   let keyLight = null;
   let nearTrialEntrance = false, nearTrial2Entrance = false, nearTrial3Entrance = false;
@@ -4148,13 +4181,18 @@ Write ONE fresh in-character line (max 2 sentences, plain spoken dialogue, no qu
       const dx = player.position.x - en.group.position.x;
       const dz = player.position.z - en.group.position.z;
       const dist = Math.hypot(dx, dz);
+      const heldBack = wst.grace > 0 && !en.trialUnit;   // arrival grace
       if (en.kind === 'guardian') {
         en.group.rotation.y = Math.atan2(dx, dz);
         if (en.fireCooldown > 0) en.fireCooldown -= dt;
-        if (dist < 16 && dist > 1.5 && en.fireCooldown <= 0 && !Engine.state.isDead) {
+        if (dist < 16 && dist > 1.5 && en.fireCooldown <= 0 && !Engine.state.isDead && !heldBack) {
           fireProjectile(en.group.position, player.position.x, player.position.z);
           en.fireCooldown = 1.6;
         }
+      } else if (heldBack) {
+        en.bobPhase += dt * 2.4;   // idle pulse only — no chase, no bite
+        const pulse = 1 + Math.sin(en.bobPhase) * 0.03;
+        en.bodyMesh.scale.set(pulse, pulse, pulse);
       } else {
         en.bobPhase += dt * 8;
         const pulse = 1 + Math.sin(en.bobPhase) * 0.05;
@@ -4355,6 +4393,7 @@ Write ONE fresh in-character line (max 2 sentences, plain spoken dialogue, no qu
   function enter() {
     // arriving through the summon: the Verge is harsher — tighter HP pool
     Object.assign(Engine.state, { maxHp: 100, hp: entered ? Math.min(Engine.state.hp, 100) : 100, stamina: Engine.state.maxStamina });
+    wst.grace = 20;   // Ashketh holds the roamers back while you get your bearings
     entered = true;
     document.getElementById('enemyHpBox').style.display = 'none';
     say('You reached my threshold. Few do. Fewer still deserve to leave it.', 5000);
@@ -4456,6 +4495,23 @@ Write ONE fresh in-character line (max 2 sentences, plain spoken dialogue, no qu
     return null;
   }
 
+  /* the always-on objective banner */
+  function objectiveText() {
+    if (wst.thresholdTriggered) return null;
+    if (wst.trialActive) return `Trial of Strength — clear wave ${wst.trialWave}/${TRIAL_WAVES.length}`;
+    if (wst.trial2Active) return 'Trial of Restraint — walk to the glowing altar. Do NOT attack, no matter what';
+    if (wst.trial3Active) {
+      const st = wardenFragment ? wardenFragment.state : 'idle';
+      if (st === 'idle') return 'Trial of Cooperation — stand next to the Warden Fragment and press E to signal it';
+      if (st === 'following') return 'Lead the Fragment onto a beacon, then press E to command it to hold';
+      return 'Now stand on the OTHER beacon and hold until the gate opens';
+    }
+    if (!wst.trialComplete) return 'Enter the Trial of Strength — the pillar ring to the south (press E at its edge)';
+    if (!wst.trial2Complete) return 'Enter the Trial of Restraint — the walled corridor to the north (press E at the glowing ring)';
+    if (!wst.trial3Complete) return 'Enter the Trial of Cooperation — the great chamber to the east (press E at the glowing ring)';
+    return 'All three trials passed — Ashketh will open the Threshold';
+  }
+
   /* what should the player do next? (trials in story order) */
   function nextHint() {
     if (wst.trialActive)
@@ -4475,6 +4531,7 @@ Write ONE fresh in-character line (max 2 sentences, plain spoken dialogue, no qu
   function update(dt) {
     Engine.player.update(dt);
     Engine.player.updateCamera(dt);
+    if (wst.grace > 0) wst.grace -= dt;
     updateEnemies(dt);
     updateProvokers(dt);
     updateWardenFragment(dt);
@@ -4498,7 +4555,7 @@ Write ONE fresh in-character line (max 2 sentences, plain spoken dialogue, no qu
     }
   }
   return { id: 'hollowVerge', name: 'The Hollow Verge', scene, mood, build, enter, exit, update, heightAt,
-    getCombatTargets, interceptAttack, onInteract, onDeath, onRespawn, objective, threatNear, rescue,
+    getCombatTargets, interceptAttack, onInteract, onDeath, onRespawn, objective, objectiveText, threatNear, rescue,
     getSaveData, applySaveData,
     obstacles, bound: 55, state: wst,
     getLandmarks() { return [
@@ -4540,6 +4597,7 @@ function animate() {
   w.update(dt);
   Engine.combat.update(dt);    // tracers / rockets / recoil in the active world
   Engine.compass.update();     // objective pointer
+  Engine.objectiveBanner.update();
   gradePass.uniforms.time.value += dt;
   updateHUD();
   composer.render();
