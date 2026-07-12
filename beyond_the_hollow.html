@@ -444,6 +444,7 @@
   <div class="panel">
     <h2>Settings</h2>
     <div class="row"><label>Difficulty</label><div class="choices" id="setDifficulty"></div></div>
+    <div class="row"><label>Combat</label><div class="choices" id="setCombat"></div></div>
     <div class="row"><label>Colorblind Mode</label><div class="choices" id="setColorblind"></div></div>
     <div class="row"><label>Graphics</label><div class="choices" id="setGraphics"></div></div>
     <div class="row"><label>Text Size</label><div class="choices" id="setTextSize"></div></div>
@@ -594,6 +595,7 @@ Engine.state = {
   paused: false,          // set true while a full-screen panel is open
   settingsOpen: false,
   difficulty: 'normal',
+  peaceful: false,        // Peaceful mode: nothing attacks the player, everything stays completable
   colorblindMode: false,
   graphicsQuality: 'high',
   textSize: 'normal',
@@ -987,7 +989,7 @@ Engine.player = (() => {
       }
     }
     // out-of-combat recovery: stay clear of hostiles long enough and HP returns
-    if (world && world.threatNear && world.threatNear()) safeTimer = 0;
+    if (!Engine.state.peaceful && world && world.threatNear && world.threatNear()) safeTimer = 0;
     else safeTimer += dt;
     regenActive = safeTimer >= regenCfg.delay && s.hp < s.maxHp;
     if (regenActive) s.hp = Math.min(s.maxHp, s.hp + regenCfg.rate * dt);
@@ -1137,6 +1139,7 @@ Engine.player = (() => {
 
   function hurt(amount) {
     const s = Engine.state; if (s.isDead) return;
+    if (s.peaceful) return;   // Peaceful mode: nothing hurts the Commander
     safeTimer = 0;   // taking damage restarts the out-of-combat recovery clock
     s.hp = Math.max(0, s.hp - amount * (DIFFICULTY_MULT[s.difficulty] || 1));
     Engine.audio.sfx.hurt(); triggerHurtFlash(); shake(0.22, 0.25);
@@ -1275,11 +1278,13 @@ Engine.rescue = () => {
 
 /* ---- top-center toast (weapon unlocks, ship ready, ...) ---- */
 Engine.toast = (text, ms) => {
+  // reading-time duration: short toasts linger a little, long hints linger a lot
+  const dur = Math.min(14000, Math.max(ms || 3200, 2200 + text.length * 65));
   const el = document.getElementById('weaponToast');
   el.textContent = text; el.classList.add('show');
   Engine.audio.sfx.build();
   clearTimeout(Engine.toast._t);
-  Engine.toast._t = setTimeout(() => el.classList.remove('show'), ms || 3200);
+  Engine.toast._t = setTimeout(() => el.classList.remove('show'), dur);
 };
 
 /* ==========================================================================
@@ -1567,6 +1572,7 @@ Engine.combat = (() => {
    ========================================================================== */
 Engine.settings = (() => {
   const DIFF = ['easy', 'normal'], CB = [['off', false], ['on', true]], GFX = ['low', 'high'];
+  const COMBAT = [['normal', false], ['peaceful', true]];
   function chip(container, options, current, onPick, labelFn) {
     container.innerHTML = '';
     options.forEach((opt) => {
@@ -1608,6 +1614,7 @@ Engine.settings = (() => {
   function render() {
     const s = Engine.state;
     chip(document.getElementById('setDifficulty'), DIFF, s.difficulty, (v) => s.difficulty = v);
+    chip(document.getElementById('setCombat'), COMBAT, s.peaceful, (v) => s.peaceful = v);
     chip(document.getElementById('setColorblind'), CB, s.colorblindMode, (v) => s.colorblindMode = v);
     chip(document.getElementById('setGraphics'), GFX, s.graphicsQuality, (v) => s.graphicsQuality = v);
     chip(document.getElementById('setTextSize'), TEXT, s.textSize, (v) => s.textSize = v);
@@ -1617,11 +1624,11 @@ Engine.settings = (() => {
   }
   async function save() {
     const s = Engine.state;
-    await Engine.storage.set('settings:v1', { difficulty: s.difficulty, colorblindMode: s.colorblindMode, graphicsQuality: s.graphicsQuality, textSize: s.textSize, subtitles: s.subtitles });
+    await Engine.storage.set('settings:v1', { difficulty: s.difficulty, peaceful: s.peaceful, colorblindMode: s.colorblindMode, graphicsQuality: s.graphicsQuality, textSize: s.textSize, subtitles: s.subtitles });
   }
   async function load() {
     const d = await Engine.storage.get('settings:v1');
-    if (d) { Object.assign(Engine.state, { difficulty: d.difficulty ?? 'normal', colorblindMode: !!d.colorblindMode, graphicsQuality: d.graphicsQuality ?? 'high', textSize: d.textSize ?? 'normal', subtitles: !!d.subtitles }); }
+    if (d) { Object.assign(Engine.state, { difficulty: d.difficulty ?? 'normal', peaceful: !!d.peaceful, colorblindMode: !!d.colorblindMode, graphicsQuality: d.graphicsQuality ?? 'high', textSize: d.textSize ?? 'normal', subtitles: !!d.subtitles }); }
     apply();
   }
   function open() { Engine.state.settingsOpen = true; Engine.state.paused = true; document.getElementById('settingsOverlay').style.display = 'flex'; render(); }
@@ -1683,13 +1690,15 @@ document.getElementById('btnCloseLog').onclick = () => Engine.choicelog.close();
    ========================================================================== */
 Engine.ashketh = {
   say(text, ms = 3400) {
+    // stay up long enough to actually READ: ~65ms per character, capped
+    const dur = Math.min(15000, Math.max(ms, 2200 + text.length * 65));
     const el = document.getElementById('ashketh');
     el.textContent = text; el.style.opacity = '1';
-    clearTimeout(this._t); this._t = setTimeout(() => { el.style.opacity = '0'; }, ms);
+    clearTimeout(this._t); this._t = setTimeout(() => { el.style.opacity = '0'; }, dur);
     if (Engine.state.subtitles) {
       const sub = document.getElementById('subtitle');
       sub.textContent = text; sub.classList.add('show');
-      clearTimeout(this._st); this._st = setTimeout(() => sub.classList.remove('show'), ms);
+      clearTimeout(this._st); this._st = setTimeout(() => sub.classList.remove('show'), dur);
     }
   },
 };
@@ -2433,7 +2442,7 @@ const WorldA = (() => {
       // while talking, during the parley, or while piloting the ship, the
       // wildlife breaks off and wanders home (the body left at the boarding
       // spot is invisible — it must not be a punching bag)
-      const playerUntouchable = wst.dialogueOpen || wst.encounterOpen || wst.piloting;
+      const playerUntouchable = wst.dialogueOpen || wst.encounterOpen || wst.piloting || Engine.state.peaceful;
       if (distP < ENEMY_AGGRO_RADIUS && !Engine.state.isDead && !playerUntouchable) en.state = 'chase';
       else if (distFromSpawn < 0.6 || playerUntouchable) en.state = 'idle';
       if (en.state === 'chase') {
@@ -2522,8 +2531,8 @@ const WorldA = (() => {
         return;
       }
       if (Engine.state.flags.rivalPath !== 'hostile') return; // truce path: no combat
-      if (wst.dialogueOpen || wst.encounterOpen || wst.piloting) {
-        // no attacks mid-conversation or while the Commander is flying — idle sway
+      if (wst.dialogueOpen || wst.encounterOpen || wst.piloting || Engine.state.peaceful) {
+        // no attacks mid-conversation, while flying, or in Peaceful mode — idle sway
         r.idlePhase += dt * 1.4;
         const sway = Math.sin(r.idlePhase) * 0.05;
         r.parts.leftArm.rotation.x = sway;
@@ -4181,11 +4190,11 @@ Write ONE fresh in-character line (max 2 sentences, plain spoken dialogue, no qu
       const dx = player.position.x - en.group.position.x;
       const dz = player.position.z - en.group.position.z;
       const dist = Math.hypot(dx, dz);
-      const heldBack = wst.grace > 0 && !en.trialUnit;   // arrival grace
+      const heldBack = (wst.grace > 0 && !en.trialUnit) || Engine.state.peaceful;   // arrival grace / Peaceful mode
       if (en.kind === 'guardian') {
         en.group.rotation.y = Math.atan2(dx, dz);
         if (en.fireCooldown > 0) en.fireCooldown -= dt;
-        if (dist < 16 && dist > 1.5 && en.fireCooldown <= 0 && !Engine.state.isDead && !heldBack) {
+        if (dist < 16 && dist > 1.5 && en.fireCooldown <= 0 && !Engine.state.isDead && !heldBack && !Engine.state.peaceful) {
           fireProjectile(en.group.position, player.position.x, player.position.z);
           en.fireCooldown = 1.6;
         }
