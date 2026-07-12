@@ -2213,19 +2213,47 @@ const WorldA = (() => {
     mesh.castShadow = true;
     mesh.userData.radius = Math.max(def.size[0], def.size[2]) / 2 + 0.3;
     scene.add(mesh); obstacles.push(mesh);
+    slot.mesh = mesh;
     return mesh;
+  }
+
+  /* demolish: free the slot, refund half the cost — the way out of a
+     colony built entirely from cheap structures (only 6 slots exist) */
+  function demolishStructure(slot) {
+    const def = structureDefs.find((d) => d.id === slot.builtType);
+    if (!def || !slot.filled) return;
+    if (slot.mesh) {
+      scene.remove(slot.mesh);
+      const oi = obstacles.indexOf(slot.mesh);
+      if (oi !== -1) obstacles.splice(oi, 1);
+      slot.mesh = null;
+    }
+    slot.filled = false;
+    slot.builtType = null;
+    builtCounts[def.id] = Math.max(0, builtCounts[def.id] - 1);
+    wst.colonyStrength = Math.max(0, wst.colonyStrength - def.strength);
+    wst.wood += Math.floor(def.cost.wood / 2);
+    wst.scrap += Math.floor(def.cost.scrap / 2);
+    Engine.audio.sfx.gather();
+    updateHudBadges();
+    renderBuildMenu();
+    Engine.save.queue();
   }
   function buildStructure(defId) {
     const def = structureDefs.find((d) => d.id === defId);
     if (!def) return;
     if (wst.wood < def.cost.wood || wst.scrap < def.cost.scrap) return;
     if (builtCounts[defId] >= def.maxCount) return;
-    const slot = buildSlots.find((sl) => !sl.filled &&
-      Math.hypot(player.position.x - sl.x, player.position.z - sl.z) > (Math.max(def.size[0], def.size[2]) / 2 + 0.9));
-    if (!slot) {
-      if (buildSlots.some((sl) => !sl.filled)) Engine.toast('Stand clear of the build site first.');
-      return;
-    }
+    // build on the FREE slot farthest from the player; if even that one is
+    // under our feet, build anyway — the depenetration system eases the
+    // Commander out of the new structure, so no wedge is possible
+    let slot = null, bestD = -1;
+    buildSlots.forEach((sl) => {
+      if (sl.filled) return;
+      const d = Math.hypot(player.position.x - sl.x, player.position.z - sl.z);
+      if (d > bestD) { bestD = d; slot = sl; }
+    });
+    if (!slot) { Engine.toast('All six build sites are in use — demolish something first.'); return; }
     wst.wood -= def.cost.wood;
     wst.scrap -= def.cost.scrap;
     builtCounts[defId] += 1;
@@ -2241,19 +2269,37 @@ const WorldA = (() => {
   function renderBuildMenu() {
     const list = document.getElementById('buildOptionsList');
     list.innerHTML = '';
+    const slotsFree = buildSlots.some((sl) => !sl.filled);
     structureDefs.forEach((def) => {
       const row = document.createElement('div');
       row.className = 'buildOption';
       const capped = builtCounts[def.id] >= def.maxCount;
       const afford = wst.wood >= def.cost.wood && wst.scrap >= def.cost.scrap;
       const costText = def.cost.scrap > 0 ? `🪵 ${def.cost.wood} · ⚙️ ${def.cost.scrap}` : `🪵 ${def.cost.wood}`;
+      const label = capped ? 'Max' : !slotsFree ? 'No site' : !afford ? 'Need more' : 'Build';
       row.innerHTML = `
         <div class="info">
           <div class="name">${def.name} (${builtCounts[def.id]}/${def.maxCount})</div>
           <div class="sub">Cost: ${costText} · +${def.strength} Colony Strength</div>
         </div>
-        <button ${(!afford || capped) ? 'disabled' : ''}>${capped ? 'Max' : 'Build'}</button>`;
+        <button ${(!afford || capped || !slotsFree) ? 'disabled' : ''}>${label}</button>`;
       row.querySelector('button').onclick = () => buildStructure(def.id);
+      list.appendChild(row);
+    });
+    // demolish rows: reclaim a slot for half the cost back
+    buildSlots.forEach((sl, i) => {
+      if (!sl.filled) return;
+      const def = structureDefs.find((d) => d.id === sl.builtType);
+      if (!def) return;
+      const row = document.createElement('div');
+      row.className = 'buildOption';
+      row.innerHTML = `
+        <div class="info">
+          <div class="name">${def.name} — site ${i + 1}</div>
+          <div class="sub">Demolish: refund 🪵 ${Math.floor(def.cost.wood / 2)}${def.cost.scrap ? ' · ⚙️ ' + Math.floor(def.cost.scrap / 2) : ''} · −${def.strength} Colony Strength</div>
+        </div>
+        <button style="background:rgba(226,87,76,.15);border-color:rgba(226,87,76,.4);">Demolish</button>`;
+      row.querySelector('button').onclick = () => demolishStructure(sl);
       list.appendChild(row);
     });
   }
